@@ -377,6 +377,7 @@ class Kinematics:
         accuracy=1e-8,
     ):
         import opensim as osim
+        from scipy.optimize import least_squares
 
         if self.path is None:
             raise ValueError("inverse_kinematics requires a model loaded from an .osim file")
@@ -393,38 +394,38 @@ class Kinematics:
         if len(flat_targets) == 0:
             raise ValueError("targets must contain at least one point")
 
-        marker_data = osim.TimeSeriesTableVec3()
-        labels = osim.StdVectorString()
-        labels.append(self.endpoint_marker_name)
-        marker_data.setColumnLabels(labels)
-        marker_data.addTableMetaDataString("Units", "m")
-        for sample, target in enumerate(flat_targets):
-            row = osim.RowVectorVec3(1)
-            row[0] = osim.Vec3(*target)
-            marker_data.appendRow(float(sample), row)
-
         model = osim.Model(self.path)
-        marker_reference = osim.MarkersReference(marker_data, osim.SetMarkerWeights())
-        coordinate_references = osim.SimTKArrayCoordinateReference()
-        state = model.initSystem()
-        solver = osim.InverseKinematicsSolver(model, marker_reference, coordinate_references)
-        solver.setAccuracy(accuracy)
-        marker = model.getMarkerSet().get(self.endpoint_marker_name)
+        coordinate_set = model.getCoordinateSet()
+        coordinates_all = [
+            coordinate_set.get(name) for name in self.coordinate_names
+        ]
+        lower = np.asarray([coordinate.getRangeMin() for coordinate in coordinates_all])
+        upper = np.asarray([coordinate.getRangeMax() for coordinate in coordinates_all])
+        if np.any(lower >= upper):
+            raise ValueError("Every unlocked coordinate must have a nonzero range for bounded IK.")
 
+        # OpenSim's coordinate ranges are not automatically hard bounds in its
+        # marker-only IK assembly. Use them explicitly in this least-squares solve.
+        x0 = np.asarray([
+            coordinate.get_default_value() for coordinate in coordinates_all
+        ], dtype=float)
+        x0 = np.maximum(x0, np.nextafter(lower, upper))
+        x0 = np.minimum(x0, np.nextafter(upper, lower))
+
+        output_indices = [self.coordinate_names.index(name) for name in coordinate_names]
         coordinates, errors = [], []
-        for sample, target in enumerate(flat_targets):
-            state.setTime(float(sample))
-            if sample == 0:
-                solver.assemble(state)
-            else:
-                solver.track(state)
-            coordinates.append([
-                model.getCoordinateSet().get(name).getValue(state)
-                for name in coordinate_names
-            ])
-            model.realizePosition(state)
-            actual = self._vec3(marker.getLocationInGround(state))
-            errors.append(np.linalg.norm(actual - target))
+        for target in flat_targets:
+            result = least_squares(
+                lambda q: np.asarray(self.endpoint_function(q), dtype=float).reshape(3) - target,
+                x0,
+                bounds=(lower, upper),
+                xtol=accuracy,
+                ftol=accuracy,
+                gtol=accuracy,
+            )
+            x0 = result.x
+            coordinates.append(result.x[output_indices])
+            errors.append(np.linalg.norm(result.fun))
         return (
             np.asarray(coordinates).reshape(target_shape + (len(coordinate_names),)),
             np.asarray(errors).reshape(target_shape),

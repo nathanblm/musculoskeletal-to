@@ -24,6 +24,7 @@ class SimbodyRenderer:
         self.ground = self.model.getGround().getMobilizedBodyIndex()
         self.point_ids, self.line_ids = [], []
         self.trajectory_line_ids, self.reference_line_ids = [], []
+        self.circular_path_line_ids = []
         self.trajectory_marker_ids = []
         self.caption_id = None
 
@@ -103,7 +104,11 @@ class SimbodyRenderer:
             self.visualizer.updDecoration(identifier).setRepresentation(osim.DecorativeGeometry.Hide)
         identifiers.clear()
 
-        points = np.asarray(points, dtype=float)
+        points = np.empty((0, 3)) if points is None else np.asarray(points, dtype=float)
+        if points.size == 0:
+            return
+        if points.ndim != 2 or points.shape[1] != 3:
+            raise ValueError("Path points must have shape (n_points, 3).")
         for start, end in zip(points[:-1], points[1:]):
             if not np.isfinite(start).all() or not np.isfinite(end).all():
                 continue
@@ -149,7 +154,7 @@ class SimbodyRenderer:
 
     def show(self, points, colors, caption, *, force=None, radius=0.006,
              opacity=1.0, force_scale=0.01, force_origin=None,
-             trajectory=None, reference=None):
+             trajectory=None, reference=None, circular_path=None):
         # Update every decoration first, then display once.
         self._set_points(points, colors, radius, opacity)
         self._set_force(force, force_scale, force_origin)
@@ -157,6 +162,7 @@ class SimbodyRenderer:
         reference = np.empty((0, 3)) if reference is None else reference
         self._set_path(trajectory, self.trajectory_line_ids, (1.0, 0.15, 0.05), 5)
         self._set_path(reference, self.reference_line_ids, (0.55, 0.55, 0.55), 2)
+        self._set_path(circular_path, self.circular_path_line_ids, (0.95, 0.65, 0.1), 3)
         self._set_trajectory_markers(trajectory, radius)
         self._set_caption(caption)
         self.model.getVisualizer().show(self.state)
@@ -332,7 +338,8 @@ class Visualizer:
              tolerance=0.01, reference_marker=None, filter_success=True,
              value_range=None, cmap=None, max_points=None, radius=0.003,
              opacity=0.8, point_size=8, show_force=True, force_scale=0.01,
-             force_origin=None, trajectory=None, reference_trajectory=None, block=True):
+             force_origin=None, trajectory=None, reference_trajectory=None,
+             circular_path=None, block=True):
         """Display sampled values in Cartesian or joint space; return (fig, ax) or point count.
 
         slice_axis: 'x', 'y' or 'z'. slice_value: absolute ground coordinate,
@@ -345,6 +352,7 @@ class Visualizer:
         max_points optionally subsamples only the displayed points.
         force_scale is metres/Newton; force_origin is a ground-frame point.
         trajectory and reference_trajectory optionally add paths to Simbody.
+        circular_path optionally adds its complete reference curve to Simbody.
         """
         if self.data is None:
             raise ValueError("Sample display requires data; pass an MSKdataset as data or use Visualizer.from_npz().")
@@ -484,10 +492,18 @@ class Visualizer:
         if backend == "simbody":
             colors = np.tile([0.1, 0.4, 1.0], (len(indices), 1)) if values is None else colormap(norm(values[indices]))[:, :3]
             caption = title if norm is None else f"{title} | scale [{norm.vmin:g}, {norm.vmax:g}]"
+            reference_path = None
+            if circular_path is not None:
+                angles = np.linspace(0.0, 2.0 * np.pi, 181)
+                reference_path = np.asarray([
+                    np.asarray(circular_path.evaluate(angle), dtype=float).reshape(3)
+                    for angle in angles
+                ])
             return self._simbody().show(
                 selected_points, colors, caption, force=force if show_force else None,
                 radius=radius, opacity=opacity, force_scale=force_scale, force_origin=force_origin,
                 trajectory=trajectory, reference=reference_trajectory,
+                circular_path=reference_path,
             )
 
         displayed = selected_points - origin
@@ -540,6 +556,24 @@ class Visualizer:
         if values.shape[1] == 3:
             return values
         raise ValueError(f"{name} must have shape (3, n_time) or (n_time, 3); got {values.shape}.")
+
+    @staticmethod
+    def _reference_xyz(values, endpoint):
+        """Return a sampled reference trajectory, including legacy path objects."""
+        if not hasattr(values, "evaluate"):
+            return Visualizer._trajectory_xyz(values, "ocp_result.reference")
+
+        angles = np.linspace(0.0, 2.0 * np.pi, 4096, endpoint=False)
+        path_points = np.asarray([
+            np.asarray(values.evaluate(float(angle)), dtype=float).reshape(3)
+            for angle in angles
+        ])
+        # Older OCP archives stored the path object rather than its time samples.
+        # Recover the closest point on that path for each saved endpoint sample.
+        return np.asarray([
+            path_points[np.argmin(np.sum((path_points - point) ** 2, axis=1))]
+            for point in endpoint
+        ])
 
     def _group_indices(self, names, label):
         names = tuple(names)
@@ -594,6 +628,7 @@ class Visualizer:
         show_force=True,
         force_scale=0.01,
         force_origin=None,
+        circular_path=None,
         block=True,
     ):
         """Show dominance samples and trajectories in Simbody, with fatigue in Matplotlib.
@@ -618,7 +653,9 @@ class Visualizer:
         endpoint = self._trajectory_xyz(ocp_result.endpoint_positions, "ocp_result.endpoint_positions")
         if len(endpoint) != len(time):
             raise ValueError("ocp_result.endpoint_positions and time must have the same length.")
-        reference = self._trajectory_xyz(ocp_result.reference, "ocp_result.reference")
+        reference = self._reference_xyz(ocp_result.reference, endpoint)
+        if circular_path is None and hasattr(ocp_result.reference, "evaluate"):
+            circular_path = ocp_result.reference
         if len(reference) != len(time):
             raise ValueError("ocp_result.reference and time must have the same length.")
 
@@ -696,6 +733,7 @@ class Visualizer:
             force_origin=force_origin,
             trajectory=endpoint,
             reference_trajectory=reference,
+            circular_path=circular_path,
             block=False,
         )
         plt.show(block=block)
@@ -807,11 +845,29 @@ class Visualizer:
         kwargs.setdefault("filter_success", False)
         return self.show("workspace", force_index=force_index, **kwargs)
 
+    def show_circular_path(self, circular_path, *, block=True):
+        """Display only a circular reference path in the Simbody model view."""
+        angles = np.linspace(0.0, 2.0 * np.pi, 181)
+        path_points = np.asarray([
+            np.asarray(circular_path.evaluate(angle), dtype=float).reshape(3)
+            for angle in angles
+        ])
+        renderer = self._simbody()
+        renderer.show(
+            np.empty((0, 3)), np.empty((0, 3)), "Circular reference path",
+            circular_path=path_points,
+        )
+        if block:
+            input("Press Enter to close the viewer...")
+        return len(path_points)
+
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("npz_path", type=Path)
+    parser.add_argument("npz_path", type=Path, nargs="?")
+    parser.add_argument("--path-only", action="store_true",
+                        help="Show only the configured circular path in Simbody")
     parser.add_argument("--ocp-result", type=Path,
                         help="OCP result archive; overlays its trajectory on the dominance map")
     parser.add_argument("--model", "--model_path", dest="model_path", type=Path,
@@ -834,7 +890,28 @@ if __name__ == "__main__":
     parser.add_argument("--max-points", type=int, help="Optional display-only subsampling")
     parser.add_argument("--radius", type=float, default=0.006, help="Simbody point radius in metres")
     parser.add_argument("--opacity", type=float, help="Point opacity in the range [0, 1]")
+    parser.add_argument("--circle-r1", type=float, default=0.3, help="Circular path offset radius in metres")
+    parser.add_argument("--circle-tz", type=float, default=0.0, help="Circular path translation along ground Z in metres")
+    parser.add_argument("--circle-theta1", type=float, default=0.0, help="Circular path orientation in radians")
+    parser.add_argument("--circle-height", type=float, default=0.6, help="Circular path height in metres")
+    parser.add_argument("--circle-r2", type=float, default=0.01, help="Circular path radius in metres")
     args = parser.parse_args()
+    if args.path_only:
+        if args.model_path is None:
+            parser.error("--model is required with --path-only")
+        if args.npz_path is not None or args.ocp_result is not None:
+            parser.error("--path-only cannot be combined with a dataset or --ocp-result")
+        from .references import CircularPath
+        viewer = Visualizer(model_path=args.model_path)
+        viewer.show_circular_path(
+            CircularPath(
+                args.circle_r1, args.circle_tz, args.circle_theta1,
+                args.circle_height, args.circle_r2,
+            )
+        )
+        raise SystemExit(0)
+    if args.npz_path is None:
+        parser.error("npz_path is required unless --path-only is used")
     viewer = Visualizer.from_npz(args.npz_path, model_path=args.model_path)
     slice_coordinate = args.slice_coordinate
     if slice_coordinate is not None:

@@ -23,13 +23,13 @@ from code.msk_optimization import (
 ROOT = Path(__file__).resolve().parent
 
 # Demo settings. Change these values to configure the pipeline.
-MODEL_NAME = "arm26_3DOF"
-N_SAMPLES = 10
+MODEL_NAME = "tsm_3DOF"
+N_SAMPLES = 10000
 FORCE_MAGNITUDES = [20.0]
 FORCE_DIRECTIONS = [[-1.0, 0.0, 0.0]]
 FORCE_INDEX = 0
-HORIZON = 100
-TIMESTEP = 0.1
+HORIZON = 500
+TIMESTEP = 0.01
 ACTIVATION_DYNAMICS = True
 FILTER_SUCCESS = True
 SHOW_DATASET_VISUALS = True

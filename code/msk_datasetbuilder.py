@@ -417,6 +417,12 @@ MODEL_CONFIG = {
         "antagonists": ["TRIlong"],
         "reference_marker": "ac",
     },
+    "tsm_3DOF": {
+        "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
+        "agonists": ["BIC_long", "BIC_brevis"],
+        "antagonists": ["TRIlong"],
+        "reference_marker": "ac",
+    },
 }
 
 
@@ -532,7 +538,7 @@ def dataset_demo(model_name: str, npz_path: str, *, endpoint_marker="endpoint"):
         backend="simbody",
         space="cartesian",
         slice_axis="y",
-        slice_value=-0.1,
+        slice_value=-0.2,
         reference_marker=ref_marker,
         tolerance=0.2,
         opacity=0.9,
@@ -545,21 +551,17 @@ if __name__ == "__main__":
     #dataset_demo("tsm_4DOF", "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz")
     
     #build_msk_dataset(
-    #    "arm26_3DOF", 
-    #    n_samples=100, 
-    #    n_magnitudes=1, 
-    #    n_directions=1, 
-    #    magnitude_min=20.0, 
-    #    magnitude_max=20.0,
-    #    magnitudes=None,
-    #    directions=None
+    #    "tsm_3DOF", 
+    #    n_samples=10000, 
+    #    magnitudes=[20.0],
+    #    directions=[[-1.0, 0.0, 0.0]]
     #)
 
     build_validation_dataset(
-        "arm26_3DOF",
-        dataset_npz_path="results/arm26_3DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
-        ocp_result_npz_path="results/arm26_3DOF/ocp/results/20261017_140446.npz",
+        "tsm_3DOF",
+        dataset_npz_path="results/tsm_3DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
+        ocp_result_npz_path="results/tsm_3DOF/ocp/results/20261021_155804.npz",
         force_index=0,
         activation_dynamics=True,
-        filter_succes=True,
+        filter_succes=False,
     )
