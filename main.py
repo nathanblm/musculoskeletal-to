@@ -3,27 +3,16 @@
 import os
 from pathlib import Path
 
-from code.msk_datasetbuilder import (
-    MODEL_CONFIG as DATASET_CONFIG,
-    build_msk_dataset,
-    build_validation_dataset,
-    dataset_demo,
-)
-from code.msk_fatiguemodel import (
-    MODEL_CONFIG as FATIGUE_CONFIG,
-    compare_muscle_state_trajectories,
-)
-from code.msk_optimization import (
-    MODEL_CONFIG as OCP_CONFIG,
-    solve_ocp,
-    visualize_ocp_result,
-)
+from code.msk_data import MODEL_CONFIG
+from code.msk_datasetbuilder import build_msk_dataset, build_validation_dataset, dataset_demo
+from code.msk_fatiguemodel import compare_muscle_state_trajectories
+from code.msk_optimization import solve_ocp, visualize_ocp_result
 
 
 ROOT = Path(__file__).resolve().parent
 
 # Demo settings. Change these values to configure the pipeline.
-MODEL_NAME = "tsm_3DOF"
+MODEL_NAME = "tsm_4DOF"
 N_SAMPLES = 10000
 FORCE_MAGNITUDES = [20.0]
 FORCE_DIRECTIONS = [[-1.0, 0.0, 0.0]]
@@ -38,7 +27,6 @@ BLOCK_OCP_VISUAL = False
 
 
 def main():
-    # Module configs use paths relative to the repository root.
     os.chdir(ROOT)
 
     dataset_path = Path(
@@ -49,13 +37,14 @@ def main():
             directions=FORCE_DIRECTIONS,
         )
     )
-    OCP_CONFIG[MODEL_NAME]["dataset_npz_path"] = str(dataset_path)
+    MODEL_CONFIG[MODEL_NAME]["dataset_npz_path"] = str(dataset_path)
+    MODEL_CONFIG[MODEL_NAME]["optimization_dataset_npz_path"] = str(dataset_path)
 
     if SHOW_DATASET_VISUALS:
         dataset_demo(
             MODEL_NAME,
             str(dataset_path),
-            endpoint_marker=DATASET_CONFIG[MODEL_NAME]["reference_marker"],
+            endpoint_marker=MODEL_CONFIG[MODEL_NAME]["reference_marker"],
         )
 
     ocp_result = solve_ocp(
@@ -67,6 +56,8 @@ def main():
     ocp_result_path = (
         ROOT / "results" / MODEL_NAME / "ocp" / "results" / f"{ocp_result.tag}.npz"
     )
+    MODEL_CONFIG[MODEL_NAME]["ocp_result_npz_path"] = str(ocp_result_path)
+    MODEL_CONFIG[MODEL_NAME]["optimization_ocp_result_npz_path"] = str(ocp_result_path)
 
     if SHOW_OCP_VISUAL:
         visualize_ocp_result(
@@ -87,11 +78,7 @@ def main():
         ROOT / "results" / MODEL_NAME / "ocp" / "validation" / f"{ocp_result.tag}.npz"
     )
 
-    FATIGUE_CONFIG[MODEL_NAME].update(
-        dataset_npz_path=str(dataset_path),
-        ocp_result_npz_path=str(ocp_result_path),
-        ocp_validation_npz_path=str(validation_path),
-    )
+    MODEL_CONFIG[MODEL_NAME]["ocp_validation_npz_path"] = str(validation_path)
     return compare_muscle_state_trajectories(
         MODEL_NAME,
         force_index=FORCE_INDEX,

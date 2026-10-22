@@ -4,6 +4,53 @@ from typing import Optional
 
 import numpy as np
 
+MODEL_CONFIG = {
+    "arm26_3DOF": {
+        "model_path": "musculoskeletal_models/arm26_3DOF/arm26_3DOF.osim",
+        "dataset_path": "results/arm26_3DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
+        "f_dynamics_func_path": "musculoskeletal_models/arm26_3DOF/fd_dynamics/F.casadi",
+        "i_dynamics_func_path": "musculoskeletal_models/arm26_3DOF/inv_dynamics/F.so",
+        "ocp_result_path": "results/arm26_3DOF/ocp/results/test.npz",
+        "ocp_validation_path": "results/arm26_3DOF/ocp/validation/test.npz",
+        "reference_marker": "r_acromion",
+        "agonists": ["TRImed", "TRIlat", "TRIlong"],
+        "antagonists": ["BICshort", "BIClong", "BRA"],
+    },
+    "arm26_4DOF": {
+        "model_path": "musculoskeletal_models/arm26_4DOF/arm26_4DOF.osim",
+        "dataset_path": "results/arm26_4DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
+        "f_dynamics_func_path": "musculoskeletal_models/arm26_4DOF/fd_dynamics/F.casadi",
+        "i_dynamics_func_path": "musculoskeletal_models/arm26_4DOF/inv_dynamics/F.so",
+        "ocp_result_path": "results/arm26_4DOF/ocp/results/test.npz",
+        "ocp_validation_path": "results/arm26_4DOF/ocp/validation/test.npz",
+        "reference_marker": "r_acromion",
+        "agonists": ["TRImed", "TRIlat", "TRIlong"],
+        "antagonists": ["BICshort", "BIClong", "BRA"],
+    },
+    "tsm_4DOF": {
+        "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
+        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
+        "f_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/fd_dynamics/F.casadi",
+        "i_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/inv_dynamics/F.so",
+        "ocp_result_path": "results/tsm_4DOF/ocp/results/test.npz",
+        "ocp_validation_path": "results/tsm_4DOF/ocp/validation/test.npz",
+        "reference_marker": "ac",
+        "agonists": ["BIC_long", "BIC_brevis"],
+        "antagonists": ["TRIlong"],
+    },
+    "tsm_3DOF": {
+        "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
+        "dataset_path": "results/tsm_3DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
+        "f_dynamics_func_path": "musculoskeletal_models/tsm_3DOF/fd_dynamics/F.casadi",
+        "i_dynamics_func_path": "musculoskeletal_models/tsm_3DOF/inv_dynamics/F.so",
+        "ocp_result_path": "results/tsm_3DOF/ocp/results/test.npz",
+        "ocp_validation_path": "results/tsm_3DOF/ocp/validation/test.npz",
+        "reference_marker": "ac",
+        "agonists": ["BIC_long", "BIC_brevis"],
+        "antagonists": ["TRIlong"],
+    },
+}
+
 
 def _cast_millard(muscle):
     import opensim as osim
@@ -292,10 +339,10 @@ class OCPResult:
 @dataclass
 class JointStates:
     names: tuple[str, ...]                  # len(n_coordinates)
-    positions: np.ndarray                   # (n_coordinates,)
-    position_limits: np.ndarray             # (n_coordinates, 2)
+    angles: np.ndarray                      # (n_coordinates,)
+    angle_limits: np.ndarray                # (n_coordinates, 2)
     velocities: np.ndarray                  # (n_coordinates,)
-    accelerations: np.ndarray               # (n_coordinates,)
+    torques: np.ndarray                     # (n_coordinates,)
 
     @classmethod
     def from_model(cls, model):
@@ -303,19 +350,19 @@ class JointStates:
 
         return cls(
             names=info.joint_coordinate_names,
-            positions=np.zeros(len(info.joint_coordinate_names)),
-            position_limits=info.joint_coordinate_limits,
+            angles=np.zeros(len(info.joint_coordinate_names)),
+            angle_limits=info.joint_coordinate_limits,
             velocities=np.zeros(len(info.joint_coordinate_names)),
-            accelerations=np.zeros(len(info.joint_coordinate_names)),
+            torques=np.zeros(len(info.joint_coordinate_names)),
         )
 
     @property
     def size(self) -> int:
-        return self.positions.size + self.velocities.size
+        return self.angles.size + self.velocities.size
 
     @property
     def x(self) -> np.ndarray:
-        return np.column_stack((self.positions, self.velocities)).ravel()
+        return np.column_stack((self.angles, self.velocities)).ravel()
 
 @dataclass
 class MuscleStates:

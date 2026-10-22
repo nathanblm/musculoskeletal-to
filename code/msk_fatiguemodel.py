@@ -2,7 +2,7 @@ from pathlib import Path
 import tqdm
 import numpy as np
 
-from .msk_data import MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates
+from .msk_data import MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates, MODEL_CONFIG
 
 from rmr_solver import RMRsolver, ActSquared
 import os
@@ -68,34 +68,6 @@ class FatigueModel:
 
         return X_muscles           # shape (n_muscles, N)
     
-
-MODEL_CONFIG = {
-    "arm26_3DOF": {
-        "model_path": "musculoskeletal_models/arm26_3DOF/arm26_3DOF.osim",
-        "dataset_npz_path": "results/arm26_3DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
-        "ocp_result_npz_path": "results/arm26_3DOF/ocp/results/20261021_154049.npz",
-        "ocp_validation_npz_path": "results/arm26_3DOF/ocp/validation/20261021_154049.npz",
-    },
-    "arm26_4DOF": {
-        "model_path": "musculoskeletal_models/arm26_4DOF/arm26_4DOF.osim",
-        "dataset_npz_path": "results/arm26_4DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
-        "ocp_result_npz_path": "results/arm26_4DOF/ocp/results/20261017_112917.npz",
-        "ocp_validation_npz_path": "results/arm26_4DOF/ocp/validation/20261017_112917.npz",
-    },
-    "tsm_4DOF": {
-        "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "dataset_npz_path": "results/tsm_4DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
-        "ocp_result_npz_path": "results/tsm_4DOF/ocp/results/20261017_112917.npz",
-        "ocp_validation_npz_path": "results/tsm_4DOF/ocp/validation/20261017_112917.npz",
-    },
-    "tsm_3DOF": {
-        "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
-        "dataset_npz_path": "results/tsm_3DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
-        "ocp_result_npz_path": "results/tsm_3DOF/ocp/results/20261021_155804.npz",
-        "ocp_validation_npz_path": "results/tsm_3DOF/ocp/validation/20261021_155804.npz",
-    }
-}
-
 
 
 def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, initial_fatigue=None):

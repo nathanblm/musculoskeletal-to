@@ -9,7 +9,7 @@ import opensim as osim
 from .sk_kinematics import Kinematics
 from .visualizer import Visualizer
 from .msk_fatiguemodel import FatigueModel
-from .msk_data import ModelInfo, OCPResult
+from .msk_data import ModelInfo, OCPResult, MODEL_CONFIG
 from .references import CircularPath
 
 from .msk_data import JointStates, MuscleStates
@@ -62,9 +62,10 @@ class OCPconfig:
         )
 
 class MusculoskeletalOCP:
-    def __init__(self, kinematics, dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None, x_init=None):
+    def __init__(self, kinematics,f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None, x_init=None):
         self.kinematics = kinematics
-        self.dynamics = dynamics
+        self.f_dynamics = f_dynamics
+        self.i_dynamics = i_dynamics
         self.fatigue = fatigue
         self.reference = reference
         self.conf = conf
@@ -89,7 +90,8 @@ class MusculoskeletalOCP:
     def from_model(
         cls,
         model,
-        dynamics_func: Path,
+        f_dynamics_func: Path,
+        i_dynamics_func: Path,
         fatigue: FatigueModel,
         reference: CircularPath,
         horizon,
@@ -99,23 +101,14 @@ class MusculoskeletalOCP:
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
         muscle_states = MuscleStates.from_model(model)
-        dynamics_func = Path(dynamics_func)
-        dynamics = ca.Function.load(str(dynamics_func))
+        f_dynamics = ca.Function.load(str(f_dynamics_func))
+        i_dynamics = ca.external("F", str(i_dynamics_func))
         conf = OCPconfig.from_model(model, horizon, timestep)
 
         x = np.concatenate((joint_states.x, muscle_states.fatigue))
-        u = joint_states.accelerations
+        u = joint_states.torques
 
-        if x_init is None:
-            path_start = np.asanyarray(reference.evaluate(0.0)).reshape((3,))
-            positions, _ = kinematics.inverse_kinematics(path_start)
-            velocities = np.zeros_like(positions)
-            muscle_state = np.zeros_like(muscle_states.fatigue)
-            joint_state = np.column_stack((positions, velocities)).ravel()
-            x_init = np.concatenate((joint_state, muscle_state))
-            print(f"Initial state not provided. Using default: {x_init}")
-
-        return cls(kinematics, dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, x_init=x_init)
+        return cls(kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, x_init=x_init)
 
     def solve(self):
         endpoint_FK = self.kinematics.endpoint_function
@@ -123,13 +116,14 @@ class MusculoskeletalOCP:
         m = self.muscle_states.fatigue.size
         position_indices = np.arange(0, n, 2)
 
-        # intial state constraint
-        self.opti.subject_to(self.X[:, 0] == self.x_init)
+
+
+        # intial path constraint
         self.opti.subject_to(self.theta[0, 0] == 0.0)
 
         # joint limits
         for i, row in enumerate(position_indices):
-            lower, upper = self.joint_states.position_limits[i]
+            lower, upper = self.joint_states.angle_limits[i]
             self.opti.subject_to(
                 self.opti.bounded(lower, self.X[row, :], upper)
             )
@@ -157,7 +151,7 @@ class MusculoskeletalOCP:
             xk = self.X[:n, k]
             uk = self.U[:, k]
 
-            f = lambda state: self.dynamics(ca.vertcat(state, uk))
+            f = lambda state: self.f_dynamics(ca.vertcat(state, uk))
             k1 = f(xk)
             k2 = f(xk + self.conf.dt * k1 / 2)
             k3 = f(xk + self.conf.dt * k2 / 2)
@@ -209,6 +203,31 @@ class MusculoskeletalOCP:
 
         return self.ocp_result
 
+    def set_initial_trajectory(self, trajectory=None):
+
+        if trajectory is not None:
+            pass
+
+        path_start = np.asanyarray(self.reference.evaluate(0.0)).reshape((3,))                  # shape (3,)
+        positions, _ = self.kinematics.inverse_kinematics(path_start)                           # shape (n_coordinates,)
+        velocities = np.zeros_like(positions)                                                   # shape (n_coordinates,)
+        accelerations = np.zeros_like(positions)                                                # shape (n_coordinates,)
+        muscle_state = np.zeros_like(self.muscle_states.fatigue)                                # shape (n_muscles,)
+        joint_state = np.column_stack((positions, velocities)).ravel()                          # shape (2*n_coordinates,)
+        torques = self.i_dynamics(
+            np.concatenate((joint_state, accelerations)))[:len(positions)]                      # shape (n_coordinates,)
+
+        init_state = np.concatenate((joint_state, muscle_state))                                # shape (2*n_coordinates + n_muscles,)
+        init_state_trajectory = np.tile(init_state.reshape(-1, 1), (1, self.conf.N))            # shape (2*n_coordinates + n_muscles, N)
+        init_control_trajectory = np.tile(
+            np.asarray(torques).reshape(-1, 1),
+            (1, self.conf.N - 1)
+        )                                                                                       # shape (n_coordinates, N-1)
+
+        self.opti.set_initial(self.X, init_state_trajectory)
+        self.opti.set_initial(self.U, init_control_trajectory)
+
+
     def save_result(self, model_name: str, *, dir=None, tag=None):
         if dir is None:
             ROOT = Path(__file__).parent.parent
@@ -223,47 +242,16 @@ class MusculoskeletalOCP:
         return self.ocp_result.save_npz(filename)
 
 
-MODEL_CONFIG = {
-    "arm26_3DOF": {
-        "model_path": "musculoskeletal_models/arm26_3DOF/arm26_3DOF.osim",
-        "dataset_npz_path": "results/arm26_3DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
-        "dynamics_func_path": "musculoskeletal_models/arm26_3DOF/fd_dynamics/F.casadi",
-        "ocp_result_npz_path": "results/arm26_3DOF/ocp/results/20261017_140446.npz",
-        "reference_marker": "r_acromion",
-    },
-    "arm26_4DOF": {
-        "model_path": "musculoskeletal_models/arm26_4DOF/arm26_4DOF.osim",
-        "dataset_npz_path": "results/arm26_4DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
-        "dynamics_func_path": "musculoskeletal_models/arm26_4DOF/fd_dynamics/F.casadi",
-        "ocp_result_npz_path": "results/arm26_4DOF/ocp/results/20261017_112917.npz",
-        "reference_marker": "r_acromion",
-
-    },
-    "tsm_4DOF": {
-        "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "dataset_npz_path": "results/tsm_4DOF/datasets/msk_dataset_p1e5_m1_d1_fx-26.8905_fy-7.10053_fz-10.2189.npz",
-        "dynamics_func_path": "musculoskeletal_models/tsm_4DOF/fd_dynamics/F.casadi",
-        "reference_marker": "ac",
-    },
-    "tsm_3DOF": {
-        "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
-        "dataset_npz_path": "results/tsm_3DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
-        "dynamics_func_path": "musculoskeletal_models/tsm_3DOF/fd_dynamics/F.casadi",
-        "ocp_result_npz_path": "results/tsm_3DOF/ocp/results/20261021_162148.npz",
-        "reference_marker": "ac",
-    },
-}
-
 
 def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100, timestep=0.1, save_motion=False, tag=None):
-    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name]["dataset_npz_path"], force_index=force_index)
+    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name].get("dataset_path"), force_index=force_index)
 
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
 
     if reference is None:
         reference = CircularPath(
-            r1=0.16,
+            r1=0.2,
             tz=0.2,
             theta1=0.0,
             h=0.6,
@@ -272,7 +260,8 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
 
     ocp = MusculoskeletalOCP.from_model(
         model=model,
-        dynamics_func=MODEL_CONFIG[model_name]["dynamics_func_path"],
+        f_dynamics_func=MODEL_CONFIG[model_name]["f_dynamics_func_path"],
+        i_dynamics_func=MODEL_CONFIG[model_name]["i_dynamics_func_path"],
         fatigue=fatigue_model,
         reference=reference,
         horizon=horizon,
@@ -300,7 +289,7 @@ def visualize_ocp_result(model_name: str, ocp_result_path: str, *, reference=Non
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
     ocp_result = OCPResult.from_npz(ocp_result_path)
 
-    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name]["dataset_npz_path"])
+    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name].get("dataset_path"))
     visualizer = Visualizer(model, data=fatigue_model.data)
     visualizer.visualize_ocp_result(
         ocp_result,
@@ -317,9 +306,9 @@ def visualize_ocp_result(model_name: str, ocp_result_path: str, *, reference=Non
 
 if __name__ == "__main__":
 
-    model_name = "tsm_3DOF"
+    model_name = "tsm_4DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=100, timestep=0.01, save_motion=True, tag="test")
+    solve_ocp(model_name, force_index=0, horizon=1000, timestep=0.01, save_motion=True, tag="test")
 
-    #ocp_result_path = MODEL_CONFIG[model_name]["ocp_result_npz_path"]
+    #ocp_result_path = MODEL_CONFIG[model_name].get("ocp_result_path", MODEL_CONFIG[model_name]["ocp_result_path"])
     #visualize_ocp_result(model_name, ocp_result_path)

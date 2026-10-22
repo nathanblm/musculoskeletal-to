@@ -25,11 +25,11 @@ class CircularPath:
 
         def y_rotation(theta):
             return ca.vertcat(
-                ca.horzcat(ca.cos(theta), 0.0, -ca.sin(theta)),
+                ca.horzcat(ca.cos(theta), 0.0, ca.sin(theta)),
                 ca.horzcat(0.0, 1.0, 0.0),
-                ca.horzcat(ca.sin(theta), 0.0, ca.cos(theta)),
+                ca.horzcat(-ca.sin(theta), 0.0, ca.cos(theta)),
             )
 
-        p2_in_ground = y_rotation(self.theta1) @ p2_plane + p1_ground
+        p2_in_ground = y_rotation(self.theta1).T @ p2_plane + p1_ground
         return p2_in_ground
         

@@ -10,7 +10,7 @@ from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from rmr_solver import RMRsolver, ActSquared
 from .visualizer import Visualizer
 from .msk_data import ModelInfo, OCPResult, SampleInputs, SampleResults, FatigueParameters, \
-      MSKdataset, RMRconfig, FatigueValidationData
+      MSKdataset, RMRconfig, FatigueValidationData, MODEL_CONFIG
 
 osim.Logger.setLevelString("Error")
 
@@ -398,33 +398,6 @@ class MusculoskeletalDatasetBuilder:
         return self.validation.save_npz(output_path)
 
 
-MODEL_CONFIG = {
-    "arm26_3DOF": {
-        "model_path": "musculoskeletal_models/arm26_3DOF/arm26_3DOF.osim",
-        "agonists": ["TRImed", "TRIlat", "TRIlong"],
-        "antagonists": ["BICshort", "BIClong", "BRA"],
-        "reference_marker": "r_acromion",
-    },
-    "arm26_4DOF": {
-        "model_path": "musculoskeletal_models/arm26_4DOF/arm26_4DOF.osim",
-        "agonists": ["TRImed", "TRIlat", "TRIlong"],
-        "antagonists": ["BICshort", "BIClong", "BRA"],
-        "reference_marker": "r_acromion",
-    },
-    "tsm_4DOF": {
-        "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "agonists": ["BIC_long", "BIC_brevis"],
-        "antagonists": ["TRIlong"],
-        "reference_marker": "ac",
-    },
-    "tsm_3DOF": {
-        "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
-        "agonists": ["BIC_long", "BIC_brevis"],
-        "antagonists": ["TRIlong"],
-        "reference_marker": "ac",
-    },
-}
-
 
 def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None):
     config = MODEL_CONFIG.get(model_name)
@@ -548,7 +521,13 @@ def dataset_demo(model_name: str, npz_path: str, *, endpoint_marker="endpoint"):
 
 
 if __name__ == "__main__":
-    #dataset_demo("tsm_4DOF", "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz")
+
+    model_name = "tsm_4DOF"
+
+    #dataset_demo(
+    #    model_name,
+    #    dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    #)
     
     #build_msk_dataset(
     #    "tsm_3DOF", 
@@ -558,9 +537,9 @@ if __name__ == "__main__":
     #)
 
     build_validation_dataset(
-        "tsm_3DOF",
-        dataset_npz_path="results/tsm_3DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
-        ocp_result_npz_path="results/tsm_3DOF/ocp/results/20261021_155804.npz",
+        model_name,
+        dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+        ocp_result_npz_path=MODEL_CONFIG[model_name]["ocp_result_path"],
         force_index=0,
         activation_dynamics=True,
         filter_succes=False,
