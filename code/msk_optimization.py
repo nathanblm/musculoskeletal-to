@@ -227,7 +227,6 @@ class MusculoskeletalOCP:
         self.opti.set_initial(self.X, init_state_trajectory)
         self.opti.set_initial(self.U, init_control_trajectory)
 
-
     def save_result(self, model_name: str, *, dir=None, tag=None):
         if dir is None:
             ROOT = Path(__file__).parent.parent

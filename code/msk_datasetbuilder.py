@@ -399,7 +399,7 @@ class MusculoskeletalDatasetBuilder:
 
 
 
-def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None):
+def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None, tag=None):
     config = MODEL_CONFIG.get(model_name)
 
     model_path = Path(config["model_path"])
@@ -411,11 +411,12 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
         if len(configured_magnitudes) == len(configured_directions) == 1:
             direction = configured_directions[0]
             force = configured_magnitudes[0] * direction / np.linalg.norm(direction)
-            force_tag = _force_label(force)
+            if not tag:
+                tag = _force_label(force)
             dataset_path = (
                 Path(__file__).resolve().parent.parent
                 / "results" / model_name / "datasets"
-                / f"msk_dataset_p{_scientific_int(n_samples)}_m1_d1_{force_tag}.npz"
+                / f"msk_dataset_p{_scientific_int(n_samples)}_m1_d1_{tag}.npz"
             )
             if dataset_path.exists():
                 MSKdataset.from_npz(dataset_path)
@@ -444,7 +445,7 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
     )
     msk_builder.compute_sample_fatigue_rates()
     msk_builder.compute_sample_fatigue_dominance()
-    return msk_builder.save_msk_dataset()
+    return msk_builder.save_msk_dataset(tag=tag)
 
 def build_validation_dataset(model_name: str, dataset_npz_path: str, ocp_result_npz_path, *, force_index=0, activation_dynamics=True, filter_succes=True):
     config = MODEL_CONFIG.get(model_name)
@@ -469,7 +470,13 @@ def build_validation_dataset(model_name: str, dataset_npz_path: str, ocp_result_
     )
     msk_builder.save_validation_data()
 
-def dataset_demo(model_name: str, npz_path: str, *, endpoint_marker="endpoint"):
+def dataset_demo(
+    model_name: str,
+    npz_path: str,
+    *,
+    endpoint_marker="endpoint",
+    cycle_dominance_forces=True,
+):
     config = MODEL_CONFIG.get(model_name)
 
     model_path = Path(config["model_path"])
@@ -505,42 +512,71 @@ def dataset_demo(model_name: str, npz_path: str, *, endpoint_marker="endpoint"):
         )
 
 
-    visualizer.show(
-        "dominance",
-        force_index=0,
-        backend="simbody",
-        space="cartesian",
-        slice_axis="y",
-        slice_value=-0.2,
-        reference_marker=ref_marker,
-        tolerance=0.2,
-        opacity=0.9,
-        radius=0.008,
-        #max_points=5000,
+    force_indices = range(len(visualizer.data.samples.forces)) if cycle_dominance_forces else range(1)
+    for force_index in force_indices:
+        visualizer.show(
+            "dominance",
+            force_index=force_index,
+            backend="simbody",
+            space="cartesian",
+            slice_axis="y",
+            slice_value=-0.15,
+            reference_marker=ref_marker,
+            tolerance=0.2,
+            opacity=0.9,
+            radius=0.008,
+            #max_points=5000,
+        )
+        if cycle_dominance_forces and force_index + 1 < len(visualizer.data.samples.forces):
+            input(f"Showing force {force_index + 1}/{len(visualizer.data.samples.forces)}. Press Enter for the next force...")
+
+def overwrite_sample_dominance(model_name: str, dataset_npz_path: str, agonist: list[str], antagonist: list[str], *, activation_dynamics=True, filter_succes=True):
+    config = MODEL_CONFIG.get(model_name)
+
+    model_path = Path(config["model_path"])
+    model = osim.Model(str(model_path))
+
+    msk_builder = MusculoskeletalDatasetBuilder.from_npz(
+        model,
+        npz_path=dataset_npz_path,
+        model_path=model_path,
     )
 
+    msk_builder.info.agonist_muscles = agonist
+    msk_builder.info.antagonist_muscles = antagonist
+
+    msk_builder.compute_sample_fatigue_dominance()
+    msk_builder.save_msk_dataset(tag="left")
 
 if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    #dataset_demo(
-    #    model_name,
-    #    dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-    #)
+    overwrite_sample_dominance(
+       model_name,
+       dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+       agonist=["TeresMinor",],                                     # red 
+       antagonist=[ "Supraspinatus_P", "Supraspinatus_A"],          # blue
+    )
+
+    dataset_demo(
+       model_name,
+       npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    )
     
     #build_msk_dataset(
-    #    "tsm_3DOF", 
-    #    n_samples=10000, 
+    #    model_name,
+    #    n_samples=100000, 
     #    magnitudes=[20.0],
-    #    directions=[[-1.0, 0.0, 0.0]]
+    #    directions=[[0.0, -1.0, 0.0]],
+    #    tag="left",
     #)
 
-    build_validation_dataset(
-        model_name,
-        dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-        ocp_result_npz_path=MODEL_CONFIG[model_name]["ocp_result_path"],
-        force_index=0,
-        activation_dynamics=True,
-        filter_succes=False,
-    )
+    #build_validation_dataset(
+    #    model_name,
+    #    dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    #    ocp_result_npz_path=MODEL_CONFIG[model_name]["ocp_result_path"],
+    #    force_index=0,
+    #    activation_dynamics=True,
+    #    filter_succes=False,
+    #)

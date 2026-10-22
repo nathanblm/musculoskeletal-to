@@ -71,11 +71,11 @@ class FatigueModel:
 
 
 def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, initial_fatigue=None):
-    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name]["dataset_npz_path"], force_index=force_index)
+    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name]["dataset_path"], force_index=force_index)
 
     from .msk_data import OCPResult, FatigueValidationData, JointStates
-    ocp_result = OCPResult.from_npz(MODEL_CONFIG[model_name]["ocp_result_npz_path"])
-    validation_data = FatigueValidationData.from_npz(MODEL_CONFIG[model_name]["ocp_validation_npz_path"])
+    ocp_result = OCPResult.from_npz(MODEL_CONFIG[model_name]["ocp_result_path"])
+    validation_data = FatigueValidationData.from_npz(MODEL_CONFIG[model_name]["ocp_validation_path"])
 
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
@@ -90,7 +90,7 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
             rates=validation_data.fatigue_rates,
             forces=validation_data.muscle_forces,
         )
-        validation_data.save_npz(MODEL_CONFIG[model_name]["ocp_validation_npz_path"])
+        validation_data.save_npz(MODEL_CONFIG[model_name]["ocp_validation_path"])
 
     from .visualizer import Visualizer
     visualizer = Visualizer(model=model, data=fatigue_model.data)

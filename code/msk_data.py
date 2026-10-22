@@ -29,14 +29,14 @@ MODEL_CONFIG = {
     },
     "tsm_4DOF": {
         "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
+        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p5e4_m1_d1_left.npz",
         "f_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/tsm_4DOF/ocp/results/test.npz",
         "ocp_validation_path": "results/tsm_4DOF/ocp/validation/test.npz",
         "reference_marker": "ac",
-        "agonists": ["BIC_long", "BIC_brevis"],
-        "antagonists": ["TRIlong"],
+        "agonists": ["TeresMinor"],
+        "antagonists": ["Supraspinatus_P", "Supraspinatus_A"],
     },
     "tsm_3DOF": {
         "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
