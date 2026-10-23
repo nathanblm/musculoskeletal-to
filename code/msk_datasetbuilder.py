@@ -127,6 +127,29 @@ class MusculoskeletalDatasetBuilder:
 
         return builder
 
+    def _compute_cartesian_coordinates(self, joint_samples: np.ndarray):
+        endpoint = self.model.getMarkerSet().get("endpoint")
+        cartesian_samples = np.empty((len(joint_samples), 3))
+
+        for sample_index, joint_sample in enumerate(tqdm(
+            joint_samples,
+            desc="Computing Cartesian coordinates",
+            unit="sample")):
+
+            for name, sample_value in zip(self.info.joint_coordinate_names, joint_sample):
+                coordinate = self.model.getCoordinateSet().get(name)
+                coordinate.setValue(self.state, sample_value)
+
+            self.model.realizePosition(self.state)
+            cartesian_position = endpoint.getLocationInGround(self.state)
+            cartesian_samples[sample_index] = np.array([
+                cartesian_position.get(0),
+                cartesian_position.get(1),
+                cartesian_position.get(2)
+            ])
+
+        return cartesian_samples
+
     def generate_regular_position_samples(self, n_samples_per_coordinate: int):
         joint_limits = self.info.joint_coordinate_limits
         n_coordinates = joint_limits.shape[0]
@@ -135,8 +158,12 @@ class MusculoskeletalDatasetBuilder:
             for i in range(n_coordinates)
         ]
         mesh = np.meshgrid(*grids, indexing="ij")
+
         joint_samples = np.stack(mesh, axis=-1).reshape(-1, n_coordinates)
+        cartesian_samples = self._compute_cartesian_coordinates(joint_samples)
+
         self.inputs.joint_coordinates = joint_samples
+        self.inputs.cartesian_coordinates = cartesian_samples
 
     def generate_random_position_samples(self, n_samples: int):
 
@@ -156,32 +183,9 @@ class MusculoskeletalDatasetBuilder:
             order = np.lexsort(joint_samples[:, ::-1].T)
             return joint_samples[order]
 
-        def _compute_cartesian_coordinates(joint_samples: np.ndarray):
-            endpoint = self.model.getMarkerSet().get("endpoint")
-            cartesian_samples = np.empty((len(joint_samples), 3))
-
-            for sample_index, joint_sample in enumerate(tqdm(
-                joint_samples,
-                desc="Computing Cartesian coordinates",
-                unit="sample")):
-
-                for name, sample_value in zip(self.info.joint_coordinate_names, joint_sample):
-                    coordinate = self.model.getCoordinateSet().get(name)
-                    coordinate.setValue(self.state, sample_value)
-
-                self.model.realizePosition(self.state)
-                cartesian_position = endpoint.getLocationInGround(self.state)
-                cartesian_samples[sample_index] = np.array([
-                    cartesian_position.get(0),
-                    cartesian_position.get(1),
-                    cartesian_position.get(2)
-                ])
-
-            return cartesian_samples
-
         joint_samples = _sample_joint_coordinates(n_samples)
         joint_samples = _order_joint_samples(joint_samples)
-        cartesian_samples = _compute_cartesian_coordinates(joint_samples)
+        cartesian_samples = self._compute_cartesian_coordinates(joint_samples)
 
         self.inputs.joint_coordinates = joint_samples
         self.inputs.cartesian_coordinates = cartesian_samples
@@ -611,17 +615,17 @@ if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    #overwrite_sample_dominance(
-    #   model_name,
-    #   dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-    #   agonist=["TeresMinor",],                                     # red 
-    #   antagonist=[ "Supraspinatus_P", "Supraspinatus_A"],          # blue
-    #)
-#
-    #dataset_demo(
-    #   model_name,
-    #   npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-    #)
+    overwrite_sample_dominance(
+       model_name,
+       dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+       agonist=["TeresMinor",],                                     # red 
+       antagonist=[ "Supraspinatus_P", "Supraspinatus_A"],          # blue
+    )
+
+    dataset_demo(
+       model_name,
+       npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    )
     
     #build_msk_dataset(
     #    model_name,

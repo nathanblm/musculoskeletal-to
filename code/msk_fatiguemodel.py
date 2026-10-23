@@ -12,8 +12,9 @@ os.environ.setdefault("SIMBODY_HOME", str(Path(sys.prefix) / "simbody"))
 
 
 class FatigueModel:
-    def __init__(self, dataset: MSKdataset, *, force_index: int = 0):
+    def __init__(self, dataset: MSKdataset, muscle_states: MuscleStates, *, force_index: int = 0):
         self.data = dataset
+        self.muscle_states = muscle_states
 
         # currently only supports nearest-neighbor lookup for joint coordinates.
         # would provide a very rough estimate if endpoint force not exactly the same as the dataset force.
@@ -29,35 +30,41 @@ class FatigueModel:
         self.valid_indices = np.flatnonzero(valid)
 
     @classmethod
-    def from_npz(cls, npz_path: Path, *, force_index: int = 0):
-        return cls(MSKdataset.from_npz(npz_path), force_index=force_index)
-
+    def from_npz(cls, npz_path: Path, muscle_states: MuscleStates, *, force_index: int = 0):
+        return cls(MSKdataset.from_npz(npz_path), muscle_states=muscle_states, force_index=force_index)
+        
     def evaluate_nn_batch(self, q: np.ndarray):                                                 # shape (N, n_coordinates)
         qs = self.data.samples.joint_coordinates[self.valid_indices]                            # shape (n_valid_samples, n_coordinates)
         diffs = qs[:, :, None] - q[None, :, :]                                                  # shape (n_valid_samples, n_coordinates, N)
         dists = np.linalg.norm(diffs, axis=1)                                                   # shape (n_valid_samples, N)
         nn_indices = self.valid_indices[np.argmin(dists, axis=0)]                               # shape (N,)
-        rates = self.data.results.sample_fatigue_rates[nn_indices, self.force_index, :]         # shape (N, n_muscles)
-        forces = self.data.results.sample_muscle_forces[nn_indices, self.force_index, :]        # shape (N, n_muscles)
+
+        muscle_indexes = self.muscle_states.indexes
+
+        rates = self.data.results.sample_fatigue_rates[
+            nn_indices, self.force_index, :][:, muscle_indexes]         # shape (N, n_muscles)
+        forces = self.data.results.sample_muscle_forces[
+            nn_indices, self.force_index, :][:, muscle_indexes]        # shape (N, n_muscles)
+        
         return rates, forces
 
     def simulate_muscle_states(self, X_joints, X_muscles, dt, N, rates=None, forces=None):
         if rates is None and forces is None:
             rates, forces = self.evaluate_nn_batch(X_joints)         # shape (N, n_muscles)
 
-
+        muscle_indexes = self.muscle_states.indexes
         params = self.data.fatigue_params
         recovery_rates = params.recovery / params.capacity
 
         for k in range(N - 1):
             previous = X_muscles[:, k]
 
-            active = forces[k] >= params.threshold
+            active = forces[k] >= params.threshold[muscle_indexes]
 
             derivative = np.where(
                 active,
                 (1.0 - previous) * rates[k],
-                -previous * recovery_rates,
+                -previous * recovery_rates[muscle_indexes],
             )
 
             X_muscles[:, k + 1] = np.clip(
@@ -71,8 +78,6 @@ class FatigueModel:
 
 
 def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, initial_fatigue=None):
-    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name]["dataset_path"], force_index=force_index)
-
     from .msk_data import OCPResult, FatigueValidationData, JointStates
     ocp_result = OCPResult.from_npz(MODEL_CONFIG[model_name]["ocp_result_path"])
     validation_data = FatigueValidationData.from_npz(MODEL_CONFIG[model_name]["ocp_validation_path"])
@@ -80,6 +85,10 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
     joint_states = JointStates.from_model(model)
+    muscle_states = MuscleStates.from_model(model, muscles=ocp_result.muscle_names)
+    fatigue_model = FatigueModel.from_npz(
+        MODEL_CONFIG[model_name]["dataset_path"], muscle_states, force_index=force_index
+    )
 
     if validation_data.muscle_states is None:
         validation_data.muscle_states = fatigue_model.simulate_muscle_states(
@@ -87,8 +96,8 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
             X_muscles=ocp_result.states[joint_states.size:, :].copy(),
             dt=ocp_result.time[1] - ocp_result.time[0],
             N=ocp_result.time.size,
-            rates=validation_data.fatigue_rates,
-            forces=validation_data.muscle_forces,
+            rates=validation_data.fatigue_rates[:, muscle_states.indexes],
+            forces=validation_data.muscle_forces[:, muscle_states.indexes],
         )
         validation_data.save_npz(MODEL_CONFIG[model_name]["ocp_validation_path"])
 

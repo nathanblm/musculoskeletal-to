@@ -29,7 +29,7 @@ MODEL_CONFIG = {
     },
     "tsm_4DOF": {
         "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_left_regular.npz",
+        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e5_m1_d1_left_regular.npz",
         "f_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/tsm_4DOF/ocp/results/test.npz",
@@ -305,6 +305,7 @@ class OCPResult:
     reference: np.ndarray                   # (n_endpoint_dims, n_time_points)
     objective: float
     tag: str = ""
+    muscle_names: tuple[str, ...] = ()
 
     @classmethod
     def from_npz(cls, path):
@@ -367,17 +368,40 @@ class JointStates:
 @dataclass
 class MuscleStates:
     names: tuple[str, ...]                  # len(n_muscles)
+    indexes: np.ndarray                     # (n_muscles,)
     fatigue: np.ndarray                     # (n_muscles,)
     max_forces: np.ndarray                  # (n_muscles,)
 
     @classmethod
-    def from_model(cls, model):
+    def from_model(cls, model, *, muscles: list[str] = None):
         info = ModelInfo.from_model(model)
 
+        if muscles is None:
+            return cls(
+                names=info.muscle_names,
+                indexes=np.arange(len(info.muscle_names)),
+                fatigue=np.zeros(len(info.muscle_names)),
+                max_forces=info.muscle_max_forces,
+            )
+
+        names = []
+        fatigue = []
+        max_forces = []
+        indexes = []
+        for muscle_name in muscles:
+            if muscle_name not in info.muscle_names:
+                raise ValueError(f"Muscle '{muscle_name}' not found in model.")
+            index = info.muscle_names.index(muscle_name)
+            names.append(info.muscle_names[index])
+            fatigue.append(0.0)
+            max_forces.append(info.muscle_max_forces[index])
+            indexes.append(index)
+
         return cls(
-            names=info.muscle_names,
-            fatigue=np.zeros(len(info.muscle_names)),
-            max_forces=info.muscle_max_forces,
+            names=tuple(names),
+            fatigue=np.array(fatigue),
+            max_forces=np.array(max_forces),
+            indexes=np.array(indexes),
         )
 
     @property

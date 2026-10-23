@@ -588,22 +588,19 @@ class Visualizer:
             indices.append(self.muscle_names.index(name))
         return names, np.asarray(indices, dtype=int)
 
-    def _selected_muscle_indices(self, muscles):
-        """Resolve a muscle selection, defaulting to every saved muscle."""
-        if muscles is None:
-            requested = range(len(self.muscle_names))
-        elif isinstance(muscles, (str, int, np.integer)):
-            requested = (muscles,)
-        else:
-            try:
-                requested = tuple(muscles)
-            except TypeError as error:
-                raise ValueError("muscles must be a name/index or an iterable of names/indices.") from error
+    def _ocp_muscle_selection(self, ocp_result):
+        """Return dataset indices and state rows in saved OCP muscle order."""
+        states = np.asarray(ocp_result.states, dtype=float)
+        joint_rows = 2 * len(np.asarray(ocp_result.pos_indices))
+        if states.ndim != 2 or states.shape[0] < joint_rows:
+            raise ValueError("ocp_result.states has an invalid joint-state axis.")
+        count = states.shape[0] - joint_rows
+        saved_names = tuple(ocp_result.muscle_names)
+        if len(saved_names) != count or len(set(saved_names)) != count:
+            raise ValueError("ocp_result.muscle_names must match its fatigue-state rows.")
 
-        indices = [self._muscle_index(muscle) for muscle in requested]
-        if len(set(indices)) != len(indices):
-            raise ValueError("muscles must not contain duplicate selections.")
-        return indices
+        dataset_indices = [self._muscle_index(name) for name in saved_names]
+        return dataset_indices, saved_names, states[joint_rows:, :]
 
     def visualize_ocp_result(
         self,
@@ -613,7 +610,6 @@ class Visualizer:
         fatigue_model=None,
         fatigue_states=None,
         initial_fatigue=None,
-        muscles=None,
         show_agonist_antagonist=False,
         slice_axis=None,
         slice_value=None,
@@ -634,9 +630,8 @@ class Visualizer:
         """Show dominance samples and trajectories in Simbody, with fatigue in Matplotlib.
 
         ``ocp_result`` may be an :class:`OCPResult` or a path to its ``.npz``
-        archive. ``muscles`` selects fatigue traces by name or index; it defaults
-        to all muscles. Set ``show_agonist_antagonist`` to overlay configured
-        agonist/antagonist group means.
+        archive. Fatigue traces follow the muscle names saved in the result.
+        Set ``show_agonist_antagonist`` to overlay configured group means.
         Returns ``(number_of_map_points, fatigue_figure, fatigue_axis)``.
         """
         if isinstance(ocp_result, (str, Path)):
@@ -659,28 +654,17 @@ class Visualizer:
         if len(reference) != len(time):
             raise ValueError("ocp_result.reference and time must have the same length.")
 
-        n_muscles = len(self.muscle_names)
+        selected_indices, saved_names, ocp_fatigue = self._ocp_muscle_selection(ocp_result)
         if fatigue_states is None:
-            states = np.asarray(ocp_result.states, dtype=float)
-            joint_state_size = 2 * len(np.asarray(ocp_result.pos_indices))
-            if states.ndim == 2 and states.shape == (joint_state_size + n_muscles, len(time)):
-                fatigue_states = states[joint_state_size:, :]
-            else:
-                if fatigue_model is None:
-                    from .msk_fatiguemodel import FatigueModel
-                    fatigue_model = FatigueModel(self.data, force_index=force_index)
-                fatigue_states = fatigue_model.eval_muscle_state_trajectory(
-                    ocp_result, initial_fatigue=initial_fatigue,
-                )
+            fatigue_states = ocp_fatigue
         fatigue_states = np.asarray(fatigue_states, dtype=float)
-        if fatigue_states.shape != (n_muscles, len(time)):
+        if fatigue_states.shape != (len(saved_names), len(time)):
             raise ValueError(
-                f"fatigue_states must have shape {(n_muscles, len(time))}; got {fatigue_states.shape}."
+                f"fatigue_states must have shape {(len(saved_names), len(time))}; got {fatigue_states.shape}."
             )
         if not np.isfinite(fatigue_states).all():
             raise ValueError("fatigue_states must contain only finite values.")
 
-        selected_indices = self._selected_muscle_indices(muscles)
         group_colors = {}
         if show_agonist_antagonist:
             agonist_names, agonist_indices = self._group_indices(self.data.info.agonist_muscles, "agonist")
@@ -690,18 +674,23 @@ class Visualizer:
             group_colors.update({int(index): "tab:red" for index in agonist_indices})
             group_colors.update({int(index): "tab:blue" for index in antagonist_indices})
         fatigue_fig, fatigue_ax = plt.subplots(figsize=(7, 5))
-        for index in selected_indices:
+        for row, index in enumerate(selected_indices):
             name = self.muscle_names[index] if self.muscle_names else f"muscle {index}"
             fatigue_ax.plot(
-                time, fatigue_states[index], color=group_colors.get(index), alpha=0.45, label=name,
+                time, fatigue_states[row], color=group_colors.get(index), alpha=0.45, label=name,
             )
         if show_agonist_antagonist:
-            for indices, label, color in (
-                (agonist_indices, "Agonists", "tab:red"),
-                (antagonist_indices, "Antagonists", "tab:blue"),
+            for names, label, color in (
+                (agonist_names, "Agonists", "tab:red"),
+                (antagonist_names, "Antagonists", "tab:blue"),
             ):
-                mean_state = fatigue_states[indices].mean(axis=0)
-                fatigue_ax.plot(time, mean_state, color=color, linewidth=2.5, label=f"{label} mean")
+                rows = [
+                    saved_names.index(name) for name in names
+                    if name in saved_names
+                ]
+                if rows:
+                    mean_state = fatigue_states[rows].mean(axis=0)
+                    fatigue_ax.plot(time, mean_state, color=color, linewidth=2.5, label=f"{label} mean")
         fatigue_ax.set_xlabel("Time [s]")
         fatigue_ax.set_ylabel("Fatigue state")
         fatigue_ax.set_ylim(0, 1)
@@ -744,40 +733,35 @@ class Visualizer:
         ocp_result,
         validation_data,
         *,
-        muscles=None,
         block=True,
     ):
         """Plot OCP map-based fatigue states against RMR validation states.
 
-        Both state arrays are expected in ``(n_muscles, n_times)`` order;
-        each selected muscle gets its own subplot.
+        Each simulated muscle gets its own subplot. Both state arrays follow
+        the muscle order saved with the OCP result.
         """
         if not self.muscle_names:
             raise ValueError("Muscle names are required to compare fatigue trajectories.")
 
         ocp_time = np.asarray(ocp_result.time, dtype=float)
         validation_time = np.asarray(validation_data.time, dtype=float)
-        states = np.asarray(ocp_result.states, dtype=float)
         validation_states = getattr(validation_data, "muscle_states", None)
         if validation_states is None:
             raise ValueError("validation_data.muscle_states must be computed before plotting.")
         validation_states = np.asarray(validation_states, dtype=float)
 
-        n_muscles = len(self.muscle_names)
+        selected, saved_names, ocp_muscle_states = self._ocp_muscle_selection(ocp_result)
         if ocp_time.ndim != 1 or validation_time.ndim != 1:
             raise ValueError("OCP and validation times must be 1D arrays.")
-        if states.ndim != 2 or states.shape[0] < n_muscles:
-            raise ValueError("ocp_result.states must be a 2D state-by-time array.")
-        ocp_muscle_states = states[-n_muscles:, :]
-        if ocp_muscle_states.shape != (n_muscles, len(ocp_time)):
+        if ocp_muscle_states.shape != (len(saved_names), len(ocp_time)):
             raise ValueError(
                 "The muscle-state portion of ocp_result.states must have shape "
-                f"{(n_muscles, len(ocp_time))}; got {ocp_muscle_states.shape}."
+                f"{(len(saved_names), len(ocp_time))}; got {ocp_muscle_states.shape}."
             )
-        if validation_states.shape != (n_muscles, len(validation_time)):
+        if validation_states.shape != (len(saved_names), len(validation_time)):
             raise ValueError(
-                "validation_data.muscle_states must have shape "
-                f"{(n_muscles, len(validation_time))}; got {validation_states.shape}."
+                "validation_data.muscle_states must have one row per OCP muscle "
+                "and one column per validation time."
             )
         if not np.isfinite(ocp_time).all() or not np.isfinite(validation_time).all():
             raise ValueError("OCP and validation times must contain only finite values.")
@@ -786,7 +770,6 @@ class Visualizer:
         if not np.isfinite(ocp_muscle_states).all() or not np.isfinite(validation_states).all():
             raise ValueError("Muscle-state trajectories must contain only finite values.")
 
-        selected = self._selected_muscle_indices(muscles)
         if not selected:
             raise ValueError("Select at least one muscle to compare.")
 
@@ -799,16 +782,16 @@ class Visualizer:
             squeeze=False,
         )
         flat_axes = axes.ravel()
-        for axis, index in zip(flat_axes, selected):
+        for row, (axis, index) in enumerate(zip(flat_axes, selected)):
             line, = axis.plot(
                 ocp_time,
-                ocp_muscle_states[index],
+                ocp_muscle_states[row],
                 label="OCP (map fatigue rates)",
                 linewidth=2,
             )
             axis.plot(
                 validation_time,
-                validation_states[index],
+                validation_states[row],
                 linestyle="--",
                 color=line.get_color(),
                 label="RMR validation",
@@ -878,7 +861,6 @@ if __name__ == "__main__":
                         help="Joint coordinate indices to plot (two or three).")
     parser.add_argument("--slice-coordinate", help="Joint coordinate index or name to slice.")
     parser.add_argument("--muscle", help="Muscle name or column index")
-    parser.add_argument("--muscles", nargs="+", help="Muscle names or column indices for optimization fatigue traces")
     parser.add_argument("--agonist-antagonist", action="store_true",
                         help="Overlay agonist/antagonist fatigue group means in the optimization view")
     parser.add_argument("--force", type=int, default=0, help="Flattened force index")
@@ -925,16 +907,12 @@ if __name__ == "__main__":
             muscle = int(muscle)
         except ValueError:
             pass
-    muscles = args.muscles
-    if muscles is not None:
-        muscles = [int(value) if value.lstrip("+-").isdigit() else value for value in muscles]
     if args.ocp_result is not None:
         if args.model_path is None:
             parser.error("--model is required with --ocp-result for the Simbody view")
         viewer.visualize_ocp_result(
             args.ocp_result,
             force_index=args.force,
-            muscles=muscles,
             show_agonist_antagonist=args.agonist_antagonist,
             slice_axis=args.slice_axis,
             slice_value=args.slice_value,

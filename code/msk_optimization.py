@@ -9,7 +9,7 @@ import opensim as osim
 from .sk_kinematics import Kinematics
 from .visualizer import Visualizer
 from .msk_fatiguemodel import FatigueModel
-from .msk_data import ModelInfo, OCPResult, MODEL_CONFIG
+from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
 from .references import CircularPath
 
 from .msk_data import JointStates, MuscleStates
@@ -62,7 +62,7 @@ class OCPconfig:
         )
 
 class MusculoskeletalOCP:
-    def __init__(self, kinematics,f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None, x_init=None):
+    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None, x_init=None):
         self.kinematics = kinematics
         self.f_dynamics = f_dynamics
         self.i_dynamics = i_dynamics
@@ -92,17 +92,19 @@ class MusculoskeletalOCP:
         model,
         f_dynamics_func: Path,
         i_dynamics_func: Path,
-        fatigue: FatigueModel,
+        dataset: Path,
         reference: CircularPath,
         horizon,
         timestep,
         x_init=None,
+        muscles: list[str] = None,
     ):
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
-        muscle_states = MuscleStates.from_model(model)
+        muscle_states = MuscleStates.from_model(model, muscles=muscles)
         f_dynamics = ca.Function.load(str(f_dynamics_func))
         i_dynamics = ca.external("F", str(i_dynamics_func))
+        fatigue = FatigueModel.from_npz(dataset, muscle_states)
         conf = OCPconfig.from_model(model, horizon, timestep)
 
         x = np.concatenate((joint_states.x, muscle_states.fatigue))
@@ -190,7 +192,8 @@ class MusculoskeletalOCP:
             controls=solution.value(self.U),
             endpoint_positions=endpoint_positions,
             reference=reference_positions,
-            objective=solution.value(self.opti.f)
+            objective=solution.value(self.opti.f),
+            muscle_names=self.muscle_states.names,
         )
 
         # simulate muscle states because not yet implemented in the OCP
@@ -242,8 +245,7 @@ class MusculoskeletalOCP:
 
 
 
-def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100, timestep=0.1, save_motion=False, tag=None):
-    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name].get("dataset_path"), force_index=force_index)
+def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
 
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
@@ -261,10 +263,11 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
         model=model,
         f_dynamics_func=MODEL_CONFIG[model_name]["f_dynamics_func_path"],
         i_dynamics_func=MODEL_CONFIG[model_name]["i_dynamics_func_path"],
-        fatigue=fatigue_model,
+        dataset=MODEL_CONFIG[model_name]["dataset_path"],
         reference=reference,
         horizon=horizon,
         timestep=timestep,
+        muscles=muscles
     )
 
     result = ocp.solve()
@@ -283,13 +286,13 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
     
     return result
 
-def visualize_ocp_result(model_name: str, ocp_result_path: str, *, reference=None, block=True):
+def visualize_ocp_result(model_name: str, ocp_result_path=None, *, reference=None, block=True):
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
-    ocp_result = OCPResult.from_npz(ocp_result_path)
+    ocp_result = OCPResult.from_npz(ocp_result_path or MODEL_CONFIG[model_name]["ocp_result_path"])
+    dataset = MSKdataset.from_npz(MODEL_CONFIG[model_name]["dataset_path"])
 
-    fatigue_model = FatigueModel.from_npz(MODEL_CONFIG[model_name].get("dataset_path"))
-    visualizer = Visualizer(model, data=fatigue_model.data)
+    visualizer = Visualizer(model, data=dataset)
     visualizer.visualize_ocp_result(
         ocp_result,
         slice_axis="y",
@@ -307,7 +310,6 @@ if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=1000, timestep=0.01, save_motion=True, tag="test")
+    solve_ocp(model_name, force_index=0, horizon=100, timestep=0.001, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_P", "Supraspinatus_A"])
 
-    #ocp_result_path = MODEL_CONFIG[model_name].get("ocp_result_path", MODEL_CONFIG[model_name]["ocp_result_path"])
-    #visualize_ocp_result(model_name, ocp_result_path)
+    visualize_ocp_result(model_name, block=True)
