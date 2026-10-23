@@ -36,7 +36,7 @@ MODEL_CONFIG = {
         "ocp_validation_path": "results/tsm_4DOF/ocp/validation/test.npz",
         "reference_marker": "ac",
         "agonists": ["TeresMinor"],
-        "antagonists": ["Supraspinatus_P", "Supraspinatus_A"],
+        "antagonists": ["Supraspinatus_A"], #Supraspinatus_P", 
     },
     "tsm_3DOF": {
         "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",

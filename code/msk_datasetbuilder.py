@@ -43,6 +43,12 @@ def _force_label(force):
     x, y, z = force
     return f"fx{x:g}_fy{y:g}_fz{z:g}"
 
+def _sampling_tag(tag, regular):
+    suffix = "regular" if regular else "random"
+    if tag and tag.endswith(f"_{suffix}"):
+        return tag
+    return f"{tag}_{suffix}" if tag else suffix
+
 
 class RMRWorkerContext:
     def __init__(self, model, model_info, config, activation_dynamics=False):
@@ -344,10 +350,7 @@ class MusculoskeletalDatasetBuilder:
         if not tag and self.inputs.forces.shape[0] == 1:
             tag = _force_label(self.inputs.forces[0])
 
-        if regular:
-            tag += "_regular"
-        else:
-            tag += "_random"
+        tag = _sampling_tag(tag, regular)
 
         filename = (
             f"msk_dataset_p{_scientific_int(self.inputs.joint_coordinates.shape[0])}"
@@ -453,25 +456,6 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
 
     model_path = Path(config["model_path"])
 
-    # Reuse the explicitly configured single-force dataset if it is already saved.
-    if magnitudes is not None and directions is not None:
-        configured_magnitudes = np.asarray(magnitudes, dtype=float).reshape(-1)
-        configured_directions = np.asarray(directions, dtype=float).reshape(-1, 3)
-        if len(configured_magnitudes) == len(configured_directions) == 1:
-            direction = configured_directions[0]
-            force = configured_magnitudes[0] * direction / np.linalg.norm(direction)
-            if not tag:
-                tag = _force_label(force)
-            dataset_path = (
-                Path(__file__).resolve().parent.parent
-                / "results" / model_name / "datasets"
-                / f"msk_dataset_p{_scientific_int(n_samples)}_m1_d1_{tag}.npz"
-            )
-            if dataset_path.exists():
-                MSKdataset.from_npz(dataset_path)
-                print(f"Loading existing dataset: {dataset_path}")
-                return dataset_path
-
     model = osim.Model(str(model_path))
 
     msk_builder = MusculoskeletalDatasetBuilder.from_model(
@@ -480,6 +464,25 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
         agonists=config["agonists"],
         antagonists=config["antagonists"],
     )
+
+    # Reuse the explicitly configured single-force dataset if it is already saved.
+    if magnitudes is not None and directions is not None:
+        configured_magnitudes = np.asarray(magnitudes, dtype=float).reshape(-1)
+        configured_directions = np.asarray(directions, dtype=float).reshape(-1, 3)
+        if len(configured_magnitudes) == len(configured_directions) == 1:
+            direction = configured_directions[0]
+            force = configured_magnitudes[0] * direction / np.linalg.norm(direction)
+            saved_tag = _sampling_tag(tag or _force_label(force), regular)
+            n_positions = n_samples ** len(msk_builder.info.joint_coordinate_names) if regular else n_samples
+            dataset_path = (
+                Path(__file__).resolve().parent.parent
+                / "results" / model_name / "datasets"
+                / f"msk_dataset_p{_scientific_int(n_positions)}_m1_d1_{saved_tag}.npz"
+            )
+            if dataset_path.exists():
+                MSKdataset.from_npz(dataset_path)
+                print(f"Loading existing dataset: {dataset_path}")
+                return dataset_path
 
     if regular:
         msk_builder.generate_regular_position_samples(n_samples_per_coordinate=n_samples)
@@ -619,7 +622,7 @@ if __name__ == "__main__":
        model_name,
        dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
        agonist=["TeresMinor",],                                     # red 
-       antagonist=[ "Supraspinatus_P", "Supraspinatus_A"],          # blue
+       antagonist=["Supraspinatus_P"],          # blue
     )
 
     dataset_demo(

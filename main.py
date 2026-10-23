@@ -13,18 +13,19 @@ ROOT = Path(__file__).resolve().parent
 
 # Demo settings. Change these values to configure the pipeline.
 MODEL_NAME = "tsm_4DOF"
-N_SAMPLES = 100000
+N_SAMPLES = 18
 FORCE_MAGNITUDES = [20.0]
 FORCE_DIRECTIONS = [[0.0, -1.0, 0.0]]
 FORCE_INDEX = 0
-HORIZON = 500
-TIMESTEP = 0.01
+HORIZON = 400
+TIMESTEP = 0.05
 ACTIVATION_DYNAMICS = True
 FILTER_SUCCESS = True
 SHOW_DATASET_VISUALS = True
 CYCLE_DOMINANCE_FORCES = False
 SHOW_OCP_VISUAL = True
 BLOCK_OCP_VISUAL = False
+OCP_MUSCLES = ["TeresMinor", "Supraspinatus_A"] #"Supraspinatus_P",
 
 
 def main():
@@ -36,7 +37,8 @@ def main():
             n_samples=N_SAMPLES,
             magnitudes=FORCE_MAGNITUDES,
             directions=FORCE_DIRECTIONS,
-            tag="left"
+            tag="left",
+            regular=True,
         )
     )
     MODEL_CONFIG[MODEL_NAME]["dataset_path"] = str(dataset_path)
@@ -49,21 +51,19 @@ def main():
             cycle_dominance_forces=CYCLE_DOMINANCE_FORCES,
         )
 
-    ocp_result = solve_ocp(
+    ocp_result_path = Path(MODEL_CONFIG[MODEL_NAME]["ocp_result_path"])
+    solve_ocp(
         MODEL_NAME,
         force_index=FORCE_INDEX,
         horizon=HORIZON,
         timestep=TIMESTEP,
+        tag=ocp_result_path.stem,
+        muscles=OCP_MUSCLES,
     )
-    ocp_result_path = (
-        ROOT / "results" / MODEL_NAME / "ocp" / "results" / f"{ocp_result.tag}.npz"
-    )
-    MODEL_CONFIG[MODEL_NAME]["ocp_result_path"] = str(ocp_result_path)
 
     if SHOW_OCP_VISUAL:
         visualize_ocp_result(
             MODEL_NAME,
-            str(ocp_result_path),
             block=BLOCK_OCP_VISUAL,
         )
 
@@ -75,11 +75,6 @@ def main():
         activation_dynamics=ACTIVATION_DYNAMICS,
         filter_succes=FILTER_SUCCESS,
     )
-    validation_path = (
-        ROOT / "results" / MODEL_NAME / "ocp" / "validation" / f"{ocp_result.tag}.npz"
-    )
-
-    MODEL_CONFIG[MODEL_NAME]["ocp_validation_path"] = str(validation_path)
     return compare_muscle_state_trajectories(
         MODEL_NAME,
         force_index=FORCE_INDEX,

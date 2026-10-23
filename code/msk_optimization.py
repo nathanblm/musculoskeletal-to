@@ -238,7 +238,7 @@ class MusculoskeletalOCP:
         dir.mkdir(parents=True, exist_ok=True)
         if tag is None:
             tag = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self.ocp_result.tag = tag
+        self.ocp_result.tag = tag
 
         filename = dir / f"{tag}.npz"
         return self.ocp_result.save_npz(filename)
@@ -310,6 +310,6 @@ if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=100, timestep=0.001, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_P", "Supraspinatus_A"])
+    solve_ocp(model_name, force_index=0, horizon=1000, timestep=0.005, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
 
     visualize_ocp_result(model_name, block=True)
