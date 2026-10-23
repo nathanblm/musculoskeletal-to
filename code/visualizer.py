@@ -735,10 +735,11 @@ class Visualizer:
         *,
         block=True,
     ):
-        """Plot OCP map-based fatigue states against RMR validation states.
+        """Compare continuous-map, discrete-map, and RMR muscle-state trajectories.
 
-        Each simulated muscle gets its own subplot. Both state arrays follow
-        the muscle order saved with the OCP result.
+        Each simulated muscle gets its own subplot. OCP state arrays follow
+        the muscle order saved with the OCP result; validation states are
+        expected in that same order.
         """
         if not self.muscle_names:
             raise ValueError("Muscle names are required to compare fatigue trajectories.")
@@ -751,12 +752,27 @@ class Visualizer:
         validation_states = np.asarray(validation_states, dtype=float)
 
         selected, saved_names, ocp_muscle_states = self._ocp_muscle_selection(ocp_result)
+        val_states = getattr(ocp_result, "val_states", None)
+        if val_states is None:
+            raise ValueError(
+                "ocp_result.val_states must contain the discrete-map muscle-state trajectory."
+            )
+        val_states = np.asarray(val_states, dtype=float)
+        joint_rows = 2 * len(np.asarray(ocp_result.pos_indices))
+        if val_states.ndim != 2 or val_states.shape[0] < joint_rows:
+            raise ValueError("ocp_result.val_states has an invalid state axis.")
+        discrete_muscle_states = val_states[joint_rows:, :]
         if ocp_time.ndim != 1 or validation_time.ndim != 1:
             raise ValueError("OCP and validation times must be 1D arrays.")
         if ocp_muscle_states.shape != (len(saved_names), len(ocp_time)):
             raise ValueError(
                 "The muscle-state portion of ocp_result.states must have shape "
                 f"{(len(saved_names), len(ocp_time))}; got {ocp_muscle_states.shape}."
+            )
+        if discrete_muscle_states.shape != (len(saved_names), len(ocp_time)):
+            raise ValueError(
+                "The muscle-state portion of ocp_result.val_states must have shape "
+                f"{(len(saved_names), len(ocp_time))}; got {discrete_muscle_states.shape}."
             )
         if validation_states.shape != (len(saved_names), len(validation_time)):
             raise ValueError(
@@ -767,7 +783,11 @@ class Visualizer:
             raise ValueError("OCP and validation times must contain only finite values.")
         if np.any(np.diff(ocp_time) <= 0) or np.any(np.diff(validation_time) <= 0):
             raise ValueError("OCP and validation times must be strictly increasing.")
-        if not np.isfinite(ocp_muscle_states).all() or not np.isfinite(validation_states).all():
+        if (
+            not np.isfinite(ocp_muscle_states).all()
+            or not np.isfinite(discrete_muscle_states).all()
+            or not np.isfinite(validation_states).all()
+        ):
             raise ValueError("Muscle-state trajectories must contain only finite values.")
 
         if not selected:
@@ -786,7 +806,15 @@ class Visualizer:
             line, = axis.plot(
                 ocp_time,
                 ocp_muscle_states[row],
-                label="OCP (map fatigue rates)",
+                label="Continuous map (OCP)",
+                linewidth=2,
+            )
+            axis.plot(
+                ocp_time,
+                discrete_muscle_states[row],
+                linestyle=":",
+                color=line.get_color(),
+                label="Discrete map",
                 linewidth=2,
             )
             axis.plot(
@@ -807,7 +835,7 @@ class Visualizer:
         for axis in flat_axes[len(selected):]:
             axis.set_visible(False)
 
-        fig.suptitle("OCP and RMR muscle-state trajectories")
+        fig.suptitle("Muscle-state trajectories: continuous map, discrete map, and RMR")
         fig.tight_layout()
         plt.show(block=block)
         return fig, axes

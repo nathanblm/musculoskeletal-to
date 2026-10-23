@@ -1,6 +1,7 @@
 from pathlib import Path
 import tqdm
 import numpy as np
+import casadi as ca
 
 from .msk_data import MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates, MODEL_CONFIG
 
@@ -29,10 +30,85 @@ class FatigueModel:
         )
         self.valid_indices = np.flatnonzero(valid)
 
+        self.axes_list = None
+        self.fatigue_rate_grid = None
+        self.muscle_force_grid = None
+        self._init_grids_for_casadi_interpolants(force_index=force_index, filter_success=True)
+
+    @property
+    def rate_interpolant(self):
+        return ca.interpolant("rate_interpolator", "linear", self.axes_list, self.fatigue_rate_grid)
+
+    @property
+    def mf_interpolant(self):
+        return ca.interpolant("mf_interpolator", "linear", self.axes_list, self.muscle_force_grid)
+
     @classmethod
     def from_npz(cls, npz_path: Path, muscle_states: MuscleStates, *, force_index: int = 0):
         return cls(MSKdataset.from_npz(npz_path), muscle_states=muscle_states, force_index=force_index)
+
+    def _init_grids_for_casadi_interpolants(self, *, force_index: int = 0, filter_success=False):
+        indices = (
+            self.valid_indices
+            if filter_success
+            else np.arange(len(self.data.samples.joint_coordinates))
+        )
+
+        joint_coordinates = self.data.samples.joint_coordinates[indices]
+        n_coordinates = joint_coordinates.shape[1]
+
+        # extracts unique joint coordinate values for interpolation grid
+        self.axes = [
+            np.unique(joint_coordinates[:, i])
+            for i in range(n_coordinates)
+        ]
+        self.axes_list = [axis.tolist() for axis in self.axes]
+
+        # the amount of grid points per joint coordinate axis
+        grid_shape = tuple(len(axis) for axis in self.axes)          # shape = (n_q1, ...,  n_qN)
+
+        fatigue_rates = self.data.results.sample_fatigue_rates[
+            :, force_index, :][
+            :, self.muscle_states.indexes]                          # shape (n_samples, n_muscles)
+        muscle_forces = self.data.results.sample_muscle_forces[
+            :, force_index, :][
+            :, self.muscle_states.indexes]                          # shape (n_samples, n_muscles)
+
+        def _build_reversed_grid(sample_values: np.ndarray):
+            grid = sample_values.reshape(*grid_shape, len(self.muscle_states.indexes), order="C")       # shape (n_q1, ...,  n_qN, n_muscles)
+            n_coordinates = len(grid_shape)
+            grid_order = tuple(reversed(range(n_coordinates))) + (n_coordinates,)                       # shape (n_qN, ...,  n_q1, n_muscles)
+            return grid.transpose(grid_order).ravel(order="C").tolist()
         
+        self.fatigue_rate_grid = _build_reversed_grid(fatigue_rates)                                    # shape (n_qN, ...,  n_q1, n_muscles)
+        self.muscle_force_grid = _build_reversed_grid(muscle_forces)                                    # shape (n_qN, ...,  n_q1, n_muscles) 
+
+    def muscle_state_derivative(self, qk: ca.MX, mk: ca.MX, from_interpolants: bool = True):
+        if from_interpolants:
+            return self.from_interpolants(qk, mk)
+        
+        # more implementations...
+        
+        
+    def from_interpolants(self, qk: ca.MX, mk: ca.MX):  
+        rates_k = self.rate_interpolant(qk)
+        forces_k = self.mf_interpolant(qk)
+
+        params = self.data.fatigue_params
+
+        recovery_rates = params.recovery / params.capacity[self.muscle_states.indexes]
+        thresholds = params.threshold[self.muscle_states.indexes]
+
+        active = forces_k >= thresholds
+
+        df = ca.if_else(
+            active,
+            (1.0 - mk) * rates_k,
+            -mk * recovery_rates,
+        )
+
+        return df
+
     def evaluate_nn_batch(self, q: np.ndarray):                                                 # shape (N, n_coordinates)
         qs = self.data.samples.joint_coordinates[self.valid_indices]                            # shape (n_valid_samples, n_coordinates)
         diffs = qs[:, :, None] - q[None, :, :]                                                  # shape (n_valid_samples, n_coordinates, N)
@@ -74,8 +150,6 @@ class FatigueModel:
             )           
 
         return X_muscles           # shape (n_muscles, N)
-    
-
 
 def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, initial_fatigue=None):
     from .msk_data import OCPResult, FatigueValidationData, JointStates

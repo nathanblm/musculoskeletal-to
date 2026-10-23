@@ -299,6 +299,12 @@ class MSKdataset:
 class OCPResult:
     time: np.ndarray
     states: np.ndarray                      # (n_states, n_time_points)
+    val_states: np.ndarray                  # (n_states, n_time_points)
+
+    # for forward simulation of muscle states using nearest neighbor evaluation of discrete rate and force maps
+    # tells us something about the accuracy of the continuous version the fatigue map wrt the discrete version
+
+    val_states: np.ndarray                  # (n_states, n_time_points)
     pos_indices: np.ndarray                 # (n_coordinates,)
     controls: np.ndarray                    # (n_controls, n_time_points - 1)
     endpoint_positions: np.ndarray          # (n_endpoint_dims, n_time_points)
@@ -325,6 +331,7 @@ class OCPResult:
         return cls(
             time=np.empty((0,)),
             states=np.empty((0, 0)),
+            val_states=np.empty((0, 0)),
             pos_indices=np.empty((0,), dtype=int),
             controls=np.empty((0, 0)),
             endpoint_positions=np.empty((0, 0)),

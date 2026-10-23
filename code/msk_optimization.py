@@ -62,7 +62,7 @@ class OCPconfig:
         )
 
 class MusculoskeletalOCP:
-    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None, x_init=None):
+    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None):
         self.kinematics = kinematics
         self.f_dynamics = f_dynamics
         self.i_dynamics = i_dynamics
@@ -76,7 +76,6 @@ class MusculoskeletalOCP:
 
         self.x = x                          # [q1, v1, q2, v2, ..., qn, vn, f1, f2, ..., fm]
         self.u = u                          # [a1, a2, ..., an]
-        self.x_init = x_init
 
         self.opti = ca.Opti()
 
@@ -85,6 +84,8 @@ class MusculoskeletalOCP:
 
         self.theta = self.opti.variable(1, self.conf.N)             # progress state for circular path
         self.thetadot = self.opti.variable(1, self.conf.N - 1)      # progress state derivative
+
+        self.set_initial_trajectory()
 
     @classmethod
     def from_model(
@@ -96,7 +97,6 @@ class MusculoskeletalOCP:
         reference: CircularPath,
         horizon,
         timestep,
-        x_init=None,
         muscles: list[str] = None,
     ):
         kinematics = Kinematics(model)
@@ -110,7 +110,7 @@ class MusculoskeletalOCP:
         x = np.concatenate((joint_states.x, muscle_states.fatigue))
         u = joint_states.torques
 
-        return cls(kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, x_init=x_init)
+        return cls(kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf)
 
     def solve(self):
         endpoint_FK = self.kinematics.endpoint_function
@@ -118,10 +118,11 @@ class MusculoskeletalOCP:
         m = self.muscle_states.fatigue.size
         position_indices = np.arange(0, n, 2)
 
-
-
         # intial path constraint
         self.opti.subject_to(self.theta[0, 0] == 0.0)
+
+        # initial muscle state
+        self.opti.subject_to(self.X[n:, 0] == np.zeros(m))
 
         # joint limits
         for i, row in enumerate(position_indices):
@@ -142,7 +143,8 @@ class MusculoskeletalOCP:
         # cost function
         cost = 0
         for k in range(self.conf.N):
-            endpoint = endpoint_FK(self.X[position_indices, k])
+            qk = self.X[position_indices, k]
+            endpoint = endpoint_FK(qk)
             path_point = self.reference.evaluate(self.theta[0, k])
             error = endpoint - path_point
             cost += ca.sumsqr(error)
@@ -169,10 +171,12 @@ class MusculoskeletalOCP:
                 self.theta[0, k + 1] == self.theta[0, k] + self.conf.dt * self.thetadot[0, k]
             )
 
-            # keep fatigue states constant as not yet implemented
-            self.opti.subject_to(self.X[n:, k + 1] == self.X[n:, k])
+            # fatigue dynamics
+            qk = self.X[position_indices, k]
+            mk = self.X[n:, k]
 
-        # TODO: fatigue dynamics
+            df = self.fatigue.muscle_state_derivative(qk, mk, from_interpolants=True)
+            self.opti.subject_to(self.X[n:, k + 1] == self.X[n:, k] + self.conf.dt * df)
 
         self.opti.minimize(cost)
         self.opti.solver("ipopt", self.conf.p_opts, self.conf.s_opts)
@@ -188,6 +192,7 @@ class MusculoskeletalOCP:
         self.ocp_result = OCPResult(
             time=np.arange(self.conf.N) * self.conf.dt,
             states=solution.value(self.X),
+            val_states=np.zeros_like(solution.value(self.X)),
             pos_indices=position_indices,
             controls=solution.value(self.U),
             endpoint_positions=endpoint_positions,
@@ -196,10 +201,12 @@ class MusculoskeletalOCP:
             muscle_names=self.muscle_states.names,
         )
 
-        # simulate muscle states because not yet implemented in the OCP
-        self.ocp_result.states[n:, :] = self.fatigue.simulate_muscle_states(
+        # forward simulation of muscle states using nearest neighbor evaluation of discrete rate and force maps
+        # for comparison with the interpolated fatigue dynamics used in the OCP
+        self.ocp_result.val_states[:n, :] = self.ocp_result.states[:n, :]
+        self.ocp_result.val_states[n:, :] = self.fatigue.simulate_muscle_states(
             self.ocp_result.states[position_indices, :],
-            self.ocp_result.states[n:, :],
+            self.ocp_result.val_states[n:, :],
             dt=self.conf.dt,
             N=self.conf.N,
         )
@@ -252,7 +259,7 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
 
     if reference is None:
         reference = CircularPath(
-            r1=0.2,
+            r1=0.3,
             tz=0.2,
             theta1=0.0,
             h=0.6,
@@ -310,6 +317,6 @@ if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=1000, timestep=0.005, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
+    solve_ocp(model_name, force_index=0, horizon=300, timestep=0.01, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
 
     visualize_ocp_result(model_name, block=True)
