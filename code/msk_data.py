@@ -29,7 +29,7 @@ MODEL_CONFIG = {
     },
     "tsm_4DOF": {
         "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p5e4_m1_d1_left.npz",
+        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_left_regular.npz",
         "f_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/tsm_4DOF/ocp/results/test.npz",

@@ -127,7 +127,18 @@ class MusculoskeletalDatasetBuilder:
 
         return builder
 
-    def generate_position_samples(self, n_samples: int):
+    def generate_regular_position_samples(self, n_samples_per_coordinate: int):
+        joint_limits = self.info.joint_coordinate_limits
+        n_coordinates = joint_limits.shape[0]
+        grids = [
+            np.linspace(joint_limits[i, 0], joint_limits[i, 1], n_samples_per_coordinate)
+            for i in range(n_coordinates)
+        ]
+        mesh = np.meshgrid(*grids, indexing="ij")
+        joint_samples = np.stack(mesh, axis=-1).reshape(-1, n_coordinates)
+        self.inputs.joint_coordinates = joint_samples
+
+    def generate_random_position_samples(self, n_samples: int):
 
         def _sample_joint_coordinates(n_samples: int):
             rng = np.random.default_rng()
@@ -175,7 +186,36 @@ class MusculoskeletalDatasetBuilder:
         self.inputs.joint_coordinates = joint_samples
         self.inputs.cartesian_coordinates = cartesian_samples
 
-    def generate_force_samples(
+    def generate_regular_force_samples(
+            self,
+            *,
+            n_magnitudes: int = 1, 
+            n_directions: int = 1, 
+            magnitude_min: float = 20.0, 
+            magnitude_max: float = 30.0,
+            magnitudes: Optional[Union[int, float, np.ndarray]] = None,
+            directions: Optional[np.ndarray] = None
+        ):
+
+        if magnitudes is None:
+            magnitudes = np.linspace(magnitude_min, magnitude_max, n_magnitudes)
+        else:
+            magnitudes = np.asarray(magnitudes, dtype=float).reshape(-1)
+
+        if directions is None:
+            directions = np.random.normal(size=(n_directions, 3))
+        else:
+            directions = np.asarray(directions, dtype=float).reshape(-1, 3)
+
+        norms = np.linalg.norm(directions, axis=1)
+        directions = directions / norms[:, None]
+        forces = (magnitudes[:, None, None] * directions[None, :, :]).reshape(-1, 3)
+
+        self.inputs.force_magnitudes = magnitudes
+        self.inputs.force_directions = directions
+        self.inputs.forces = forces
+
+    def generate_random_force_samples(
             self,
             *,
             n_magnitudes: int = 1,
@@ -211,7 +251,7 @@ class MusculoskeletalDatasetBuilder:
             self.inputs.force_magnitudes = magnitudes
             self.inputs.force_directions = directions
             self.inputs.forces = (magnitudes[:, None, None] * directions[None, :, :]).reshape(-1, 3)
-            
+
     def evaluate_sample_activations_and_muscle_forces(self, *, workers=4, activation_dynamics=False):
 
         n_positions = len(self.inputs.joint_coordinates)
@@ -289,7 +329,7 @@ class MusculoskeletalDatasetBuilder:
         self.results.sample_fatigue_dominance = sample_fatigue_dominance
         return sample_fatigue_dominance
 
-    def save_msk_dataset(self, *, results_dir=None, tag=None):
+    def save_msk_dataset(self, *, results_dir=None, tag=None, regular=True):
         if results_dir is None:
             ROOT = Path(__file__).parent.parent
             results_dir = ROOT / "results" / self.model.getName() / "datasets"
@@ -299,6 +339,11 @@ class MusculoskeletalDatasetBuilder:
 
         if not tag and self.inputs.forces.shape[0] == 1:
             tag = _force_label(self.inputs.forces[0])
+
+        if regular:
+            tag += "_regular"
+        else:
+            tag += "_random"
 
         filename = (
             f"msk_dataset_p{_scientific_int(self.inputs.joint_coordinates.shape[0])}"
@@ -399,7 +444,7 @@ class MusculoskeletalDatasetBuilder:
 
 
 
-def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None, tag=None):
+def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None, tag=None, regular=True):
     config = MODEL_CONFIG.get(model_name)
 
     model_path = Path(config["model_path"])
@@ -432,20 +477,34 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
         antagonists=config["antagonists"],
     )
 
-    msk_builder.generate_position_samples(n_samples=n_samples)
-    msk_builder.generate_force_samples(
-        magnitudes=magnitudes,
-        directions=directions,
-        n_magnitudes=n_magnitudes,
-        n_directions=n_directions,
-    )
+    if regular:
+        msk_builder.generate_regular_position_samples(n_samples_per_coordinate=n_samples)
+        msk_builder.generate_regular_force_samples(
+            n_magnitudes=n_magnitudes,
+            n_directions=n_directions,
+            magnitude_min=magnitude_min,
+            magnitude_max=magnitude_max,
+            magnitudes=magnitudes,
+            directions=directions,
+        )
+    else:
+        msk_builder.generate_random_position_samples(n_samples=n_samples)
+        msk_builder.generate_random_force_samples(
+            n_magnitudes=n_magnitudes,
+            n_directions=n_directions,
+            magnitude_min=magnitude_min,
+            magnitude_max=magnitude_max,
+            magnitudes=magnitudes,
+            directions=directions,
+        )
+        
     msk_builder.evaluate_sample_activations_and_muscle_forces(
         workers=mp.cpu_count(),
         activation_dynamics=False,
     )
     msk_builder.compute_sample_fatigue_rates()
     msk_builder.compute_sample_fatigue_dominance()
-    return msk_builder.save_msk_dataset(tag=tag)
+    return msk_builder.save_msk_dataset(tag=tag, regular=regular)
 
 def build_validation_dataset(model_name: str, dataset_npz_path: str, ocp_result_npz_path, *, force_index=0, activation_dynamics=True, filter_succes=True):
     config = MODEL_CONFIG.get(model_name)
@@ -552,24 +611,25 @@ if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    overwrite_sample_dominance(
-       model_name,
-       dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-       agonist=["TeresMinor",],                                     # red 
-       antagonist=[ "Supraspinatus_P", "Supraspinatus_A"],          # blue
-    )
-
-    dataset_demo(
-       model_name,
-       npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-    )
+    #overwrite_sample_dominance(
+    #   model_name,
+    #   dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    #   agonist=["TeresMinor",],                                     # red 
+    #   antagonist=[ "Supraspinatus_P", "Supraspinatus_A"],          # blue
+    #)
+#
+    #dataset_demo(
+    #   model_name,
+    #   npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    #)
     
     #build_msk_dataset(
     #    model_name,
-    #    n_samples=100000, 
+    #    n_samples=10, 
     #    magnitudes=[20.0],
     #    directions=[[0.0, -1.0, 0.0]],
     #    tag="left",
+    #    regular=True,
     #)
 
     #build_validation_dataset(
