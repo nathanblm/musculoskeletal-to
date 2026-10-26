@@ -19,10 +19,13 @@ class OCPconfig:
     N: int
     dt: float
     control_lim: np.ndarray
-    thetadot_bounds: tuple  # minimum and maximum speed for traversing the circular path
+    theta1_bounds: tuple  # minimum and maximum angle for rotating circular path around the ground y-axis
+    theta1dot_bounds: tuple  # speed for rotating circular path around the ground y-axis
+    theta2dot_bounds: tuple  # minimum and maximum speed for traversing the circular path
 
     w_control: np.ndarray
     w_tracking: np.ndarray
+    w_fatigue: np.ndarray
 
     p_opts = {
         "expand": False,
@@ -40,25 +43,34 @@ class OCPconfig:
 
 
     @classmethod
-    def from_model(cls, model, horizon, timestep, *, control_lim=None, thetadot_bounds=None, w_control=None, w_tracking=None):
+    def from_model(cls, model, horizon, timestep, *, control_lim=None, theta1_bounds=None, theta1dot_bounds=None, theta2dot_bounds=None, w_control=None, w_tracking=None, w_fatigue=None):
         info = ModelInfo.from_model(model)
 
         if control_lim is None:
             control_lim = np.full(len(info.joint_coordinate_names), 100)
-        if thetadot_bounds is None:
-            thetadot_bounds = (0.01, 5.0)
+        if theta1_bounds is None:
+            theta1_bounds = (0, 0.5 * np.pi)
+        if theta1dot_bounds is None:
+            theta1dot_bounds = (-0.3, 0.3)
+        if theta2dot_bounds is None:
+            theta2dot_bounds = (0.01, 5.0)      # positive to ensure forward progression
         if w_control is None:
             w_control = np.full(len(info.joint_coordinate_names), 1e-3)
         if w_tracking is None:
-            w_tracking = np.full(3, 1e4)
+            w_tracking = 1.0
+        if w_fatigue is None:
+            w_fatigue = 1e-3
 
         return cls(
             N=horizon,
             dt=timestep,
             control_lim=control_lim,
-            thetadot_bounds=thetadot_bounds,
+            theta1_bounds=theta1_bounds,
+            theta1dot_bounds=theta1dot_bounds,
+            theta2dot_bounds=theta2dot_bounds,
             w_control=w_control,
-            w_tracking=w_tracking
+            w_tracking=w_tracking,
+            w_fatigue=w_fatigue,
         )
 
 class MusculoskeletalOCP:
@@ -82,8 +94,11 @@ class MusculoskeletalOCP:
         self.X = self.opti.variable(self.x.size, self.conf.N)
         self.U = self.opti.variable(self.u.size, self.conf.N - 1)
 
-        self.theta = self.opti.variable(1, self.conf.N)             # progress state for circular path
-        self.thetadot = self.opti.variable(1, self.conf.N - 1)      # progress state derivative
+        
+        self.theta1 = self.opti.variable(1, self.conf.N)
+        self.theta1dot = self.opti.variable(1, self.conf.N - 1)
+        self.theta2 = self.opti.variable(1, self.conf.N)             # progress state for circular path
+        self.theta2dot = self.opti.variable(1, self.conf.N - 1)      # progress state derivative
 
         self.set_initial_trajectory()
 
@@ -119,7 +134,7 @@ class MusculoskeletalOCP:
         position_indices = np.arange(0, n, 2)
 
         # intial path constraint
-        self.opti.subject_to(self.theta[0, 0] == 0.0)
+        self.opti.subject_to(self.theta2[0, 0] == 0.0)
 
         # initial muscle state
         self.opti.subject_to(self.X[n:, 0] == np.zeros(m))
@@ -137,18 +152,22 @@ class MusculoskeletalOCP:
             upper = self.conf.control_lim[i]
             self.opti.subject_to(self.opti.bounded(lower, self.U[i, :], upper))
 
-        # progress velocity limits
-        self.opti.subject_to(self.opti.bounded(self.conf.thetadot_bounds[0], self.thetadot, self.conf.thetadot_bounds[1]))
+        # circular path rotation limits
+        self.opti.subject_to(self.opti.bounded(self.conf.theta1_bounds[0], self.theta1, self.conf.theta1_bounds[1]))
+        self.opti.subject_to(self.opti.bounded(self.conf.theta1dot_bounds[0], self.theta1dot, self.conf.theta1dot_bounds[1]))
+        self.opti.subject_to(self.opti.bounded(self.conf.theta2dot_bounds[0], self.theta2dot, self.conf.theta2dot_bounds[1]))
 
         # cost function
         cost = 0
         for k in range(self.conf.N):
             qk = self.X[position_indices, k]
             endpoint = endpoint_FK(qk)
-            path_point = self.reference.evaluate(self.theta[0, k])
+            path_point = self.reference.evaluate(self.theta1[0, k], self.theta2[0, k])
             error = endpoint - path_point
-            cost += ca.sumsqr(error)
+            cost += self.conf.w_tracking * ca.sumsqr(error)
 
+            fatigue_mean = ca.sum1(self.X[n:, k]) / m
+            cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
 
         for k in range(self.conf.N - 1):
             # dynamics rk4 integration
@@ -166,9 +185,11 @@ class MusculoskeletalOCP:
                 == xk + self.conf.dt * (k1 + 2*k2 + 2*k3 + k4) / 6
             )
 
-            # path progression
             self.opti.subject_to(
-                self.theta[0, k + 1] == self.theta[0, k] + self.conf.dt * self.thetadot[0, k]
+                self.theta1[0, k + 1] == self.theta1[0, k] + self.conf.dt * self.theta1dot[0, k]
+            )
+            self.opti.subject_to(
+                self.theta2[0, k + 1] == self.theta2[0, k] + self.conf.dt * self.theta2dot[0, k]
             )
 
             # fatigue dynamics
@@ -183,10 +204,11 @@ class MusculoskeletalOCP:
         solution = self.opti.solve()
 
         endpoint_positions = np.asarray(endpoint_FK(solution.value(self.X[position_indices, :])))
-        theta_values = np.asarray(solution.value(self.theta), dtype=float).reshape(-1)
+        theta1_values = np.asarray(solution.value(self.theta1), dtype=float).reshape(-1)
+        theta2_values = np.asarray(solution.value(self.theta2), dtype=float).reshape(-1)
         reference_positions = np.column_stack([
-            np.asarray(self.reference.evaluate(float(theta)), dtype=float).reshape(3)
-            for theta in theta_values
+            np.asarray(self.reference.evaluate(float(theta1), float(theta2)), dtype=float).reshape(3)
+            for theta1, theta2 in zip(theta1_values, theta2_values)
         ])
     
         self.ocp_result = OCPResult(
@@ -218,7 +240,9 @@ class MusculoskeletalOCP:
         if trajectory is not None:
             pass
 
-        path_start = np.asanyarray(self.reference.evaluate(0.0)).reshape((3,))                  # shape (3,)
+        theta1_start = 0.0
+        theta2_start = 0.0
+        path_start = np.asanyarray(self.reference.evaluate(theta1_start, theta2_start)).reshape((3,))                  # shape (3,)
         positions, _ = self.kinematics.inverse_kinematics(path_start)                           # shape (n_coordinates,)
         velocities = np.zeros_like(positions)                                                   # shape (n_coordinates,)
         accelerations = np.zeros_like(positions)                                                # shape (n_coordinates,)
@@ -261,7 +285,6 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
         reference = CircularPath(
             r1=0.3,
             tz=0.2,
-            theta1=0.0,
             h=0.6,
             r2=0.1
         )
