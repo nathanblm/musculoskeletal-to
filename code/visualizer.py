@@ -911,10 +911,10 @@ if __name__ == "__main__":
             parser.error("--model is required with --path-only")
         if args.npz_path is not None or args.ocp_result is not None:
             parser.error("--path-only cannot be combined with a dataset or --ocp-result")
-        from .references import CircularPath
+        from .references import Circular1DOF
         viewer = Visualizer(model_path=args.model_path)
         viewer.show_circular_path(
-            CircularPath(
+            Circular1DOF(
                 args.circle_r1, args.circle_tz, args.circle_theta1,
                 args.circle_height, args.circle_r2,
             )
