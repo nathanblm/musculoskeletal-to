@@ -11,7 +11,7 @@ def _y_rotation(theta):
     )
 
 
-class ReferencePath(ABC):
+class CartesianPath(ABC):
     @property
     @abstractmethod
     def parameter_bounds(self):
@@ -51,7 +51,7 @@ class ReferencePath(ABC):
             )
 
 
-class Circular2DOF(ReferencePath):
+class Circular2DOF(CartesianPath):
     def __init__(self, r1, tz, h, r2):
         self.r1 = r1
         self.tz = tz
@@ -92,7 +92,7 @@ class Circular2DOF(ReferencePath):
         return p2_in_ground
 
 
-class Circular1DOF(ReferencePath):
+class Circular1DOF(CartesianPath):
     def __init__(self, r1, tz, theta, h, r2):
         self.r = r1
         self.tz = tz
@@ -132,3 +132,93 @@ class Circular1DOF(ReferencePath):
         p2_in_ground = _y_rotation(self.theta).T @ p2_plane + p1_ground
         return p2_in_ground
 
+
+class JointPath(ABC):
+    @property
+    @abstractmethod
+    def parameter_bounds(self):
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def rate_bounds(self):
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def initial_parameters(self):
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def initial_rates(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def evaluate(self, parameters):
+        """ return the joint position on path for given input parameters """
+        raise NotImplementedError
+
+    def add_constraints(self, opti, parameters, rates, timestep):
+        """Add standard bounds and first-order path dynamics."""
+        lower, upper = np.asarray(self.parameter_bounds).T
+        rate_lower, rate_upper = np.asarray(self.rate_bounds).T
+        opti.subject_to(opti.bounded(lower, parameters, upper))
+        opti.subject_to(opti.bounded(rate_lower, rates, rate_upper))
+        opti.subject_to(parameters[:, 0] == self.initial_parameters)
+        for index in range(parameters.shape[1] - 1):
+            opti.subject_to(
+                parameters[:, index + 1]
+                == parameters[:, index] + timestep * rates[:, index]
+            )
+
+class FreeJointPath(JointPath):
+    """ A joint path that allows free movement in all joints. """
+
+    def __init__(self, joint_names):
+        self.joint_names = joint_names
+
+    @property
+    def parameter_bounds(self):
+        return np.array([[-np.inf, np.inf]] * len(self.joint_names))
+
+    @property
+    def rate_bounds(self):
+        return np.array([[0.05, 0.2]] * len(self.joint_names))
+
+    @property
+    def initial_parameters(self):
+        return np.zeros(len(self.joint_names))
+
+    @property
+    def initial_rates(self):
+        return np.full(len(self.joint_names), 0.05)
+
+    def evaluate(self, parameters: ca.SX):
+        return parameters
+
+
+class JointPath2DOF(JointPath):
+    """ A joint path that allows free movement in two joints. """
+    
+    def __init__(self, joint_names):
+        self.joint_names = joint_names
+
+    @property
+    def parameter_bounds(self):
+        return np.array([[-np.inf, np.inf]] * len(self.joint_names))
+
+    @property
+    def rate_bounds(self):
+        return np.array([[-0.1, 0.1]] * len(self.joint_names))
+
+    @property
+    def initial_parameters(self):
+        return np.zeros(len(self.joint_names))
+
+    @property
+    def initial_rates(self):
+        return np.full(len(self.joint_names), 0.001)
+
+    def evaluate(self, parameters: ca.SX):
+        return parameters

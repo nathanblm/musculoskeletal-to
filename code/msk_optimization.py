@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Union
 from pathlib import Path
 
 import casadi as ca
@@ -10,7 +11,7 @@ from .sk_kinematics import Kinematics
 from .visualizer import Visualizer
 from .msk_fatiguemodel import FatigueModel
 from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
-from .references import Circular2DOF, Circular1DOF, ReferencePath
+from .references import Circular2DOF, Circular1DOF, CartesianPath, JointPath, FreeJointPath
 
 from .msk_data import JointStates, MuscleStates
 
@@ -98,7 +99,7 @@ class MusculoskeletalOCP:
         f_dynamics_func: Path,
         i_dynamics_func: Path,
         dataset: Path,
-        reference: ReferencePath,
+        reference: Union[CartesianPath, JointPath],
         horizon,
         timestep,
         muscles: list[str] = None,
@@ -214,10 +215,86 @@ class MusculoskeletalOCP:
 
         return self.ocp_result
 
-    def set_initial_trajectory(self, trajectory=None):
+    def solve_joint_path(self):
+        """ Optimize a joint-space trajectory with fatigue but without human dynamics. """
+        if not isinstance(self.reference, JointPath):
+            raise ValueError("Reference path must be a JointPath for this method")
 
-        if trajectory is not None:
-            pass
+        self.endpoint_FK = self.kinematics.endpoint_function
+
+        n = self.joint_states.x.size
+        m = self.muscle_states.fatigue.size
+        position_indices = np.arange(0, n, 2)
+
+        self.opti.subject_to(self.X[:n, 0] == np.zeros(n))
+        self.opti.subject_to(self.U[:, 0] == np.zeros(self.u.size))
+
+        # path in terms of joint angles so set joint limits as bounds on path parameters
+        for i in range(self.path_parameters.shape[0]):
+            lower, upper = self.joint_states.angle_limits[i]
+            self.opti.subject_to(
+                self.opti.bounded(lower, self.path_parameters[i, :], upper)
+            )
+
+        # initial muscle state
+        self.opti.subject_to(self.X[n:, 0] == np.zeros(m))
+
+        self.reference.add_constraints(
+            self.opti, self.path_parameters, self.path_rates, self.conf.dt
+        ) 
+    
+        # cost function
+        cost = 0
+        for k in range(self.conf.N):
+            fatigue_mean = ca.sum1(self.X[n:, k]) / m
+            cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
+
+        for k in range(self.conf.N - 1):
+            # fatigue dynamics
+            qk = self.path_parameters[:, k]
+            mk = self.X[n:, k]
+
+            df = self.fatigue.muscle_state_derivative(qk, mk, from_interpolants=True)
+            self.opti.subject_to(self.X[n:, k + 1] == self.X[n:, k] + self.conf.dt * df)
+
+        self.opti.minimize(cost)
+        self.opti.solver("ipopt", self.conf.p_opts, self.conf.s_opts)
+        solution = self.opti.solve()
+
+
+        path_values = np.atleast_2d(
+            np.asarray(solution.value(self.path_parameters), dtype=float)
+        )
+
+        endpoint_positions = np.asarray(
+            self.endpoint_FK(solution.value(self.X[position_indices, :]))
+        )
+
+        # convert joint-space path to Cartesian positions for visualization
+        reference_positions = np.zeros((3, self.conf.N))
+        for k in range(self.conf.N):
+            reference_positions[:, k] = np.asarray(
+                self.endpoint_FK(path_values[:, k])
+            ).reshape(3)
+
+        self.ocp_result = OCPResult(
+            time=np.arange(self.conf.N) * self.conf.dt,
+            states=solution.value(self.X),
+            val_states=np.zeros_like(solution.value(self.X)),
+            pos_indices=position_indices,
+            controls=solution.value(self.U),
+            endpoint_positions=endpoint_positions,
+            reference=reference_positions,
+            objective=solution.value(self.opti.f),
+            muscle_names=self.muscle_states.names,
+        )
+
+        return self.ocp_result
+
+    def set_initial_trajectory(self):
+
+        if isinstance(self.reference, JointPath):
+            return
 
         path_start = np.asanyarray(
             self.reference.evaluate(self.reference.initial_parameters)
@@ -302,6 +379,28 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
     
     return result
 
+def solve_joint_path(model_name: str, horizon=100, timestep=0.1, tag=None, muscles: list[str] = None):
+    import opensim as osim
+    model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
+    joint_states = JointStates.from_model(model)
+    reference = FreeJointPath(joint_states.names)
+
+    ocp = MusculoskeletalOCP.from_model(
+        model=model,
+        f_dynamics_func=MODEL_CONFIG[model_name]["f_dynamics_func_path"],
+        i_dynamics_func=MODEL_CONFIG[model_name]["i_dynamics_func_path"],
+        dataset=MODEL_CONFIG[model_name]["dataset_path"],
+        reference=reference,
+        horizon=horizon,
+        timestep=timestep,
+        muscles=muscles
+    )
+
+    result = ocp.solve_joint_path()
+    ocp.save_result(model_name=model_name, tag=tag)
+
+    return result
+
 def visualize_ocp_result(model_name: str, ocp_result_path=None, *, reference=None, block=True):
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
@@ -326,6 +425,12 @@ if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=300, timestep=0.01, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
 
-    visualize_ocp_result(model_name, block=True)
+
+
+
+    #solve_ocp(model_name, horizon=300, timestep=0.01, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
+
+    solve_joint_path(model_name, horizon=500, timestep=0.01, tag="joint_path", muscles=["TeresMinor", "Supraspinatus_A", "Supraspinatus_P"])  #
+    path = Path("/home/nathan/Robotics/THESIS/Project/musculoskeletal-to/results/tsm_4DOF/ocp/results/joint_path.npz")
+    visualize_ocp_result(model_name, block=True, ocp_result_path=path)
