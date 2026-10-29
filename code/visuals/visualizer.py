@@ -310,7 +310,6 @@ class Visualizer:
         show_force=True,
         force_scale=0.01,
         force_origin=None,
-        circular_path=None,
         block=True,
     ):
         """Show dominance samples and trajectories in Simbody, with fatigue in Matplotlib.
@@ -326,7 +325,7 @@ class Visualizer:
         time = np.asarray(ocp_result.time, dtype=float)
 
         endpoint = ocp_result.endpoint_positions.T
-        reference = ocp_result.reference.T
+        task = ocp_result.task.T
 
         _, saved_names, ocp_fatigue = self._ocp_muscle_selection(ocp_result)
         if fatigue_states is None:
@@ -369,8 +368,7 @@ class Visualizer:
             force_scale=force_scale,
             force_origin=force_origin,
             trajectory=endpoint,
-            reference_trajectory=reference,
-            circular_path=circular_path,
+            reference_trajectory=task,
             block=False,
         )
         plt.show(block=block)

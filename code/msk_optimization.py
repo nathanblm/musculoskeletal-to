@@ -10,8 +10,7 @@ from .sk_kinematics import Kinematics
 from .visuals.visualizer import Visualizer
 from .msk_fatiguemodel import FatigueModel
 from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
-from .references import Circular2DOF, Circular1DOF, ReferencePath
-
+from .tasks import *
 from .msk_data import JointStates, MuscleStates
 
 @dataclass
@@ -61,32 +60,31 @@ class OCPconfig:
         )
 
 class MusculoskeletalOCP:
-    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None):
+    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, task, joint_states, muscle_states, conf, N=None):
         self.kinematics = kinematics
         self.f_dynamics = f_dynamics
         self.i_dynamics = i_dynamics
         self.fatigue = fatigue
-        self.reference = reference
+        self.task = task
         self.conf = conf
         self.ocp_result = OCPResult.empty()
 
         self.muscle_states = muscle_states
         self.joint_states = joint_states
 
-        self.x = x                          # [q1, v1, q2, v2, ..., qn, vn, f1, f2, ..., fm]
-        self.u = u                          # [a1, a2, ..., an]
-
         self.opti = ca.Opti()
 
-        self.X = self.opti.variable(self.x.size, self.conf.N)
-        self.U = self.opti.variable(self.u.size, self.conf.N - 1)
-
-        
-        self.path_parameters = self.opti.variable(
-            len(self.reference.initial_parameters), self.conf.N
+        self.X = self.opti.variable(
+            self.joint_states.x.size + self.muscle_states.fatigue.size,
+            self.conf.N,
         )
-        self.path_rates = self.opti.variable(
-            len(self.reference.initial_rates), self.conf.N - 1
+        self.U = self.opti.variable(self.joint_states.torques.size, self.conf.N - 1)       # [a1, a2, ..., an] * (N-1)
+
+        self.task_params = self.opti.variable(
+            len(self.task.initial_parameters), self.conf.N
+        )
+        self.task_param_rates = self.opti.variable(
+            len(self.task.initial_rates), self.conf.N - 1
         )
 
         self.set_initial_trajectory()
@@ -98,7 +96,7 @@ class MusculoskeletalOCP:
         f_dynamics_func: Path,
         i_dynamics_func: Path,
         dataset: Path,
-        reference: ReferencePath,
+        task: Task,
         horizon,
         timestep,
         muscles: list[str] = None,
@@ -111,15 +109,15 @@ class MusculoskeletalOCP:
         fatigue = FatigueModel.from_npz(dataset, muscle_states)
         conf = OCPconfig.from_model(model, horizon, timestep)
 
-        x = np.concatenate((joint_states.x, muscle_states.fatigue))
-        u = joint_states.torques
-
-        return cls(kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf)
+        return cls(kinematics, f_dynamics, i_dynamics, fatigue, task, joint_states, muscle_states, conf)
 
     def solve(self):
         endpoint_FK = self.kinematics.endpoint_function
         n = self.joint_states.x.size
         m = self.muscle_states.fatigue.size
+        u = self.joint_states.torques.size
+        dt = self.conf.dt
+
         position_indices = np.arange(0, n, 2)
 
         # initial muscle state
@@ -133,28 +131,34 @@ class MusculoskeletalOCP:
             )
 
         # control limits
-        for i in range(len(self.u)):
+        for i in range(u):
             lower = -self.conf.control_lim[i]
             upper = self.conf.control_lim[i]
             self.opti.subject_to(self.opti.bounded(lower, self.U[i, :], upper))
 
-        self.reference.add_constraints(
-            self.opti, self.path_parameters, self.path_rates, self.conf.dt
+
+        terminal_endpoint = endpoint_FK(self.X[position_indices, -1])
+        self.task.add_boundary_constraints(
+            self.opti, self.task_params, self.task_param_rates,
+            endpoint=terminal_endpoint,
         )
 
         # cost function
         cost = 0
         for k in range(self.conf.N):
-            qk = self.X[position_indices, k]
-            endpoint = endpoint_FK(qk)
-            path_point = self.reference.evaluate(self.path_parameters[:, k])
-            error = endpoint - path_point
-            cost += self.conf.w_tracking * ca.sumsqr(error)
-
             fatigue_mean = ca.sum1(self.X[n:, k]) / m
             cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
 
+        # path constraints and dynamics
         for k in range(self.conf.N - 1):
+            qk = self.X[position_indices, k]
+            endpoint = endpoint_FK(qk)
+
+            self.task.add_path_constraints(
+                self.opti, self.task_params, self.task_param_rates, k, dt,
+                endpoint=endpoint,
+            )
+
             # dynamics rk4 integration
             xk = self.X[:n, k]
             uk = self.U[:, k]
@@ -182,11 +186,11 @@ class MusculoskeletalOCP:
         solution = self.opti.solve()
 
         endpoint_positions = np.asarray(endpoint_FK(solution.value(self.X[position_indices, :])))
-        path_values = np.atleast_2d(
-            np.asarray(solution.value(self.path_parameters), dtype=float)
+        task_values = np.atleast_2d(
+            np.asarray(solution.value(self.task_params), dtype=float)
         )
-        reference_positions = np.column_stack([
-            np.asarray(self.reference.evaluate(path_values[:, k]), dtype=float).reshape(3)
+        task_positions = np.column_stack([
+            np.asarray(self.task.evaluate(task_values[:, k]), dtype=float).reshape(3)
             for k in range(self.conf.N)
         ])
     
@@ -197,7 +201,7 @@ class MusculoskeletalOCP:
             pos_indices=position_indices,
             controls=solution.value(self.U),
             endpoint_positions=endpoint_positions,
-            reference=reference_positions,
+            task=task_positions,
             objective=solution.value(self.opti.f),
             muscle_names=self.muscle_states.names,
         )
@@ -220,7 +224,7 @@ class MusculoskeletalOCP:
             pass
 
         path_start = np.asanyarray(
-            self.reference.evaluate(self.reference.initial_parameters)
+            self.task.evaluate(self.task.initial_parameters)
         ).reshape((3,))
         positions, _ = self.kinematics.inverse_kinematics(path_start)                           # shape (n_coordinates,)
         velocities = np.zeros_like(positions)                                                   # shape (n_coordinates,)
@@ -240,12 +244,12 @@ class MusculoskeletalOCP:
         self.opti.set_initial(self.X, init_state_trajectory)
         self.opti.set_initial(self.U, init_control_trajectory)
         self.opti.set_initial(
-            self.path_parameters,
-            np.tile(self.reference.initial_parameters.reshape(-1, 1), (1, self.conf.N)),
+            self.task_params,
+            np.tile(self.task.initial_parameters.reshape(-1, 1), (1, self.conf.N)),
         )
         self.opti.set_initial(
-            self.path_rates,
-            np.tile(self.reference.initial_rates.reshape(-1, 1), (1, self.conf.N - 1)),
+            self.task_param_rates,
+            np.tile(self.task.initial_rates.reshape(-1, 1), (1, self.conf.N - 1)),
         )
 
     def save_result(self, model_name: str, *, dir=None, tag=None):
@@ -262,18 +266,28 @@ class MusculoskeletalOCP:
         return self.ocp_result.save_npz(filename)
 
 
-def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
+def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
 
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
 
-    if reference is None:
-        reference = Circular1DOF(
-            r1=0.3,
-            tz=0.2,
-            theta=0.0,
-            h=0.6,
-            r2=0.1
+    if task is None:
+        #task = CircularPath1(
+        #    r1=0.3,
+        #    tz=0.2,
+        #    theta=0.0,
+        #    h=0.6,
+        #    r2=0.1
+        #)
+        #task = CircularPath2(
+        #    r1=0.3,
+        #    tz=0.2,
+        #    h=0.6,
+        #    r2=0.1
+        #)
+        task = SphericalRegion(
+            center=np.array([0.3, 0.6, 0.2]),
+            radius=0.1,
         )
 
     ocp = MusculoskeletalOCP.from_model(
@@ -281,7 +295,7 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
         f_dynamics_func=MODEL_CONFIG[model_name]["f_dynamics_func_path"],
         i_dynamics_func=MODEL_CONFIG[model_name]["i_dynamics_func_path"],
         dataset=MODEL_CONFIG[model_name]["dataset_path"],
-        reference=reference,
+        task=task,
         horizon=horizon,
         timestep=timestep,
         muscles=muscles
@@ -303,7 +317,7 @@ def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100
     
     return result
 
-def visualize_ocp_result(model_name: str, ocp_result_path=None, *, reference=None, block=True):
+def visualize_ocp_result(model_name: str, ocp_result_path=None, *, block=True):
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
     ocp_result = OCPResult.from_npz(ocp_result_path or MODEL_CONFIG[model_name]["ocp_result_path"])
@@ -318,7 +332,6 @@ def visualize_ocp_result(model_name: str, ocp_result_path=None, *, reference=Non
         tolerance=0.05,
         opacity=0.9,
         radius=0.008,
-        circular_path=reference,
         block=block,
     )
 

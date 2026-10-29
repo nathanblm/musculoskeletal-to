@@ -301,15 +301,10 @@ class OCPResult:
     time: np.ndarray
     states: np.ndarray                      # (n_states, n_time_points)
     val_states: np.ndarray                  # (n_states, n_time_points)
-
-    # for forward simulation of muscle states using nearest neighbor evaluation of discrete rate and force maps
-    # tells us something about the accuracy of the continuous version the fatigue map wrt the discrete version
-
-    val_states: np.ndarray                  # (n_states, n_time_points)
     pos_indices: np.ndarray                 # (n_coordinates,)
     controls: np.ndarray                    # (n_controls, n_time_points - 1)
     endpoint_positions: np.ndarray          # (n_endpoint_dims, n_time_points)
-    reference: np.ndarray                   # (n_endpoint_dims, n_time_points)
+    task: np.ndarray                        # (n_endpoint_dims, n_time_points)
     objective: float
     tag: str = ""
     muscle_names: tuple[str, ...] = ()
@@ -336,13 +331,13 @@ class OCPResult:
             pos_indices=np.empty((0,), dtype=int),
             controls=np.empty((0, 0)),
             endpoint_positions=np.empty((0, 0)),
-            reference=np.empty((0, 0)),
+            task=np.empty((0, 0)),
             objective=float("nan"),
         )
 
     @property
     def rms_tracking_error(self) -> float:
-        error = self.endpoint_positions - self.reference
+        error = self.endpoint_positions - self.task
         return float(np.sqrt(np.mean(np.sum(error**2, axis=0))))
 
 @dataclass
