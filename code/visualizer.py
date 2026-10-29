@@ -174,6 +174,7 @@ class Visualizer:
         "activation": ("sample_activations", "Activation", "RdYlGn_r", (0, 1)),
         "muscle_force": ("sample_muscle_forces", "Muscle force [N]", "viridis", None),
         "fatigue": ("sample_fatigue_rates", "Fatigue rate [s^-1]", "viridis", None),
+        "threshold": ("sample_muscle_forces", "Above force threshold", "RdYlGn", (0, 1)),
         "dominance": ("sample_fatigue_dominance", "Fatigue dominance", "coolwarm", (-1, 1)),
     }
 
@@ -339,7 +340,7 @@ class Visualizer:
              value_range=None, cmap=None, max_points=None, radius=0.003,
              opacity=0.8, point_size=8, show_force=True, force_scale=0.01,
              force_origin=None, trajectory=None, reference_trajectory=None,
-             circular_path=None, block=True):
+             circular_path=None, threshold_fraction=None, block=True):
         """Display sampled values in Cartesian or joint space; return (fig, ax) or point count.
 
         slice_axis: 'x', 'y' or 'z'. slice_value: absolute ground coordinate,
@@ -351,7 +352,8 @@ class Visualizer:
         value_range fixes the colour scale, useful for comparing sample evaluations.
         max_points optionally subsamples only the displayed points.
         force_scale is metres/Newton; force_origin is a ground-frame point.
-        trajectory and reference_trajectory optionally add paths to Simbody.
+        trajectory adds a path to Simbody or a joint-coordinate path to joint-space plots.
+        reference_trajectory optionally adds a path to Simbody.
         circular_path optionally adds its complete reference curve to Simbody.
         """
         if self.data is None:
@@ -384,6 +386,10 @@ class Visualizer:
             raise ValueError("force_scale must be finite and positive.")
         if max_points is not None and (not isinstance(max_points, (int, np.integer)) or max_points <= 0):
             raise ValueError("max_points must be a positive integer.")
+        if threshold_fraction is not None and (
+            not np.isfinite(threshold_fraction) or not 0 <= threshold_fraction <= 1
+        ):
+            raise ValueError("threshold_fraction must be between 0 and 1.")
 
         if space == "cartesian":
             points = self.data.samples.cartesian_coordinates
@@ -443,9 +449,16 @@ class Visualizer:
                 values = array[:, force_index]
             else:
                 index = self._muscle_index(muscle)
-                values = array[:, force_index, index]
                 name = self.muscle_names[index] if self.muscle_names else f"muscle {index}"
                 title += f" | {name}"
+                if field == "threshold":
+                    if threshold_fraction is None:
+                        threshold = self.data.fatigue_params.threshold[index]
+                    else:
+                        threshold = threshold_fraction * self.data.info.muscle_max_forces[index]
+                    values = (array[:, force_index, index] >= threshold).astype(float)
+                else:
+                    values = array[:, force_index, index]
             mask &= np.isfinite(values)
             if not np.any(mask):
                 raise ValueError("No finite samples satisfy the validity filter.")
@@ -518,7 +531,23 @@ class Visualizer:
             style.update(c=values[indices], cmap=colormap, norm=norm)
         scatter = ax.scatter(*(displayed[:, i] for i in axes), **style)
         if values is not None:
-            fig.colorbar(scatter, ax=ax, label=label, shrink=0.8)
+            colorbar = fig.colorbar(scatter, ax=ax, label=label, shrink=0.8)
+            if field == "threshold":
+                colorbar.set_ticks([0.0, 1.0])
+                colorbar.set_ticklabels(["below", "above"])
+        if space == "joint" and trajectory is not None:
+            trajectory = np.asarray(trajectory, dtype=float)
+            if trajectory.ndim != 2 or trajectory.shape[0] == 0 or trajectory.shape[1] != points.shape[1]:
+                raise ValueError("Joint trajectory must have shape (n_times, n_coordinates).")
+            if not np.isfinite(trajectory).all():
+                raise ValueError("Joint trajectory must contain only finite values.")
+            if is_3d:
+                ax.computed_zorder = False
+                scatter.set_zorder(1)
+            ax.plot(*(trajectory[:, i] for i in axes), color="black", linewidth=3, zorder=3, label="trajectory")
+            ax.scatter(*(trajectory[0, i] for i in axes), color="white", edgecolor="black", s=45, zorder=4, label="start")
+            ax.scatter(*(trajectory[-1, i] for i in axes), color="red", edgecolor="black", s=45, zorder=4, label="end")
+            ax.legend()
         if space == "cartesian":
             reference = "ground" if reference_marker is None else reference_marker
             labels = [f"{'XYZ'[i]} relative to {reference} [m]" for i in axes]

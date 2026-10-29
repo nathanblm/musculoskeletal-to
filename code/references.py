@@ -50,6 +50,12 @@ class ReferencePath(ABC):
                 == parameters[:, index] + timestep * rates[:, index]
             )
 
+    def add_endpoint_constraints(self, opti, endpoint, reference_point):
+        pass
+
+    def tracking_cost(self, endpoint, reference_point):
+        return ca.sumsqr(endpoint - reference_point)
+
 
 class Circular2DOF(ReferencePath):
     def __init__(self, r1, tz, h, r2):
@@ -131,4 +137,62 @@ class Circular1DOF(ReferencePath):
 
         p2_in_ground = _y_rotation(self.theta).T @ p2_plane + p1_ground
         return p2_in_ground
+
+
+class SphereReference(ReferencePath):
+    def __init__(self, radius, initial_center, center_bounds=None, center_rate_bounds=None):
+        if radius <= 0:
+            raise ValueError("radius must be positive.")
+
+        initial_center = np.asarray(initial_center, dtype=float).reshape(-1)
+        if initial_center.size != 3:
+            raise ValueError("initial_center must contain exactly three values.")
+
+        if center_bounds is None:
+            center_bounds = np.tile([-np.inf, np.inf], (3, 1))
+        center_bounds = np.asarray(center_bounds, dtype=float)
+        if center_bounds.shape != (3, 2):
+            raise ValueError("center_bounds must have shape (3, 2).")
+        if np.any(center_bounds[:, 0] > center_bounds[:, 1]):
+            raise ValueError("Each center bound must be increasing.")
+        if np.any(initial_center < center_bounds[:, 0]) or np.any(initial_center > center_bounds[:, 1]):
+            raise ValueError("initial_center must lie within center_bounds.")
+
+        if center_rate_bounds is None:
+            center_rate_bounds = np.tile([-np.inf, np.inf], (3, 1))
+        center_rate_bounds = np.asarray(center_rate_bounds, dtype=float)
+        if center_rate_bounds.shape != (3, 2):
+            raise ValueError("center_rate_bounds must have shape (3, 2).")
+        if np.any(center_rate_bounds[:, 0] > center_rate_bounds[:, 1]):
+            raise ValueError("Each center rate bound must be increasing.")
+
+        self.radius = float(radius)
+        self.center_bounds = center_bounds
+        self.center_rate_bounds = center_rate_bounds
+        self._initial_center = initial_center
+
+    @property
+    def parameter_bounds(self):
+        return self.center_bounds
+
+    @property
+    def rate_bounds(self):
+        return self.center_rate_bounds
+
+    @property
+    def initial_parameters(self):
+        return self._initial_center
+
+    @property
+    def initial_rates(self):
+        return np.zeros(3)
+
+    def evaluate(self, parameters):
+        return parameters
+
+    def add_endpoint_constraints(self, opti, endpoint, reference_point):
+        opti.subject_to(ca.sumsqr(endpoint - reference_point) <= self.radius ** 2)
+
+    def tracking_cost(self, endpoint, reference_point):
+        return 0.0
 

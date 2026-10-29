@@ -536,7 +536,7 @@ def build_validation_dataset(model_name: str, dataset_npz_path: str, ocp_result_
     )
     msk_builder.save_validation_data()
 
-def dataset_demo(
+def dataset_cartesian_demo(
     model_name: str,
     npz_path: str,
     *,
@@ -577,7 +577,6 @@ def dataset_demo(
             block=False,
         )
 
-
     force_indices = range(len(visualizer.data.samples.forces)) if cycle_dominance_forces else range(1)
     for force_index in force_indices:
         visualizer.show(
@@ -593,8 +592,93 @@ def dataset_demo(
             radius=0.008,
             #max_points=5000,
         )
+
+        input(f"Showing force {force_index + 1}/{len(visualizer.data.samples.forces)}. Press Enter for the next force...")
+
         if cycle_dominance_forces and force_index + 1 < len(visualizer.data.samples.forces):
             input(f"Showing force {force_index + 1}/{len(visualizer.data.samples.forces)}. Press Enter for the next force...")
+
+def dataset_joint_demo(
+    model_name: str,
+    npz_path: str,
+    *,
+    endpoint_marker="endpoint",
+    cycle_dominance_forces=True,
+    threshold_fraction=0.3,
+):  
+    config = MODEL_CONFIG.get(model_name)
+
+    model_path = Path(config["model_path"])
+    model = osim.Model(str(model_path))
+    ref_marker = config["reference_marker"]
+
+    msk_builder = MusculoskeletalDatasetBuilder.from_npz(
+        model,
+        npz_path=npz_path,
+        model_path=model_path,
+    )
+
+    visualizer = msk_builder.create_visualizer(
+        npz_path=npz_path,
+        endpoint_marker=endpoint_marker,
+    )
+
+    visualizer.show(
+        field="dominance",
+        force_index=0,
+        backend="matplotlib",
+        space="joint",
+        coordinate_axes=(0, 1, 2),
+        block=False,
+        
+    )
+
+    agonist = msk_builder.info.agonist_muscles[0]
+    antagonist = msk_builder.info.antagonist_muscles[0]
+
+    visualizer.show(
+        field="fatigue",
+        muscle=agonist,
+        force_index=0,
+        backend="matplotlib",
+        space="joint",
+        coordinate_axes=(0, 1, 2),
+        block=False,
+    )
+
+    visualizer.show(
+        field="threshold",
+        muscle=agonist,
+        force_index=0,
+        backend="matplotlib",
+        space="joint",
+        coordinate_axes=(0, 1, 2),
+        threshold_fraction=threshold_fraction,
+        block=False,
+    )
+
+    visualizer.show(
+        field="fatigue",
+        muscle=antagonist,
+        force_index=0,
+        backend="matplotlib",
+        space="joint",
+        coordinate_axes=(0, 1, 2),
+        block=False,
+    )
+
+    visualizer.show(
+        field="threshold",
+        muscle=antagonist,
+        force_index=0,
+        backend="matplotlib",
+        space="joint",
+        coordinate_axes=(0, 1, 2),
+        threshold_fraction=threshold_fraction,
+        block=False,
+    )
+
+    input(f"Press enter to close the visualizations and exit.")
 
 def overwrite_sample_dominance(model_name: str, dataset_npz_path: str, agonist: list[str], antagonist: list[str], *, activation_dynamics=True, filter_succes=True):
     config = MODEL_CONFIG.get(model_name)
@@ -616,23 +700,23 @@ def overwrite_sample_dominance(model_name: str, dataset_npz_path: str, agonist: 
 
 if __name__ == "__main__":
 
-    model_name = "tsm_4DOF"
+    model_name = "tsm_3DOF"
 
     overwrite_sample_dominance(
        model_name,
        dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-       agonist=["TeresMinor",],                                     # red 
-       antagonist=["Supraspinatus_P"],          # blue
+       agonist=["DeltoideusScapula_M"],                                     # red 
+       antagonist=["Infraspinatus_S"],          # blue
     )
 
-    dataset_demo(
+    dataset_joint_demo(
        model_name,
        npz_path=MODEL_CONFIG[model_name]["dataset_path"],
     )
-    
+
     #build_msk_dataset(
     #    model_name,
-    #    n_samples=10, 
+    #    n_samples=30, 
     #    magnitudes=[20.0],
     #    directions=[[0.0, -1.0, 0.0]],
     #    tag="left",

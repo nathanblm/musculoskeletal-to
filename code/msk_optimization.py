@@ -10,7 +10,7 @@ from .sk_kinematics import Kinematics
 from .visualizer import Visualizer
 from .msk_fatiguemodel import FatigueModel
 from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
-from .references import Circular2DOF, Circular1DOF, ReferencePath
+from .references import Circular2DOF, Circular1DOF, SphereReference, ReferencePath
 
 from .msk_data import JointStates, MuscleStates
 
@@ -60,6 +60,20 @@ class OCPconfig:
             w_fatigue=w_fatigue,
         )
 
+class SecondOrderIntegrator:
+    def __init__(self, n_coordinates):
+        self.n_coordinates = n_coordinates
+
+    def __call__(self, state_and_control):
+        n_states = 2 * self.n_coordinates
+        x = state_and_control[:n_states]
+        u = state_and_control[n_states:]
+
+        dx = []
+        for i in range(self.n_coordinates):
+            dx.extend((x[2*i + 1], u[i]))
+        return ca.vertcat(*dx)
+
 class MusculoskeletalOCP:
     def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, reference, joint_states, muscle_states, x, u, conf, N=None):
         self.kinematics = kinematics
@@ -106,7 +120,12 @@ class MusculoskeletalOCP:
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
         muscle_states = MuscleStates.from_model(model, muscles=muscles)
-        f_dynamics = ca.Function.load(str(f_dynamics_func))
+
+        if f_dynamics_func:
+            f_dynamics = ca.Function.load(str(f_dynamics_func))
+        else:
+            f_dynamics = SecondOrderIntegrator(joint_states.size // 2)
+
         i_dynamics = ca.external("F", str(i_dynamics_func))
         fatigue = FatigueModel.from_npz(dataset, muscle_states)
         conf = OCPconfig.from_model(model, horizon, timestep)
@@ -148,8 +167,9 @@ class MusculoskeletalOCP:
             qk = self.X[position_indices, k]
             endpoint = endpoint_FK(qk)
             path_point = self.reference.evaluate(self.path_parameters[:, k])
-            error = endpoint - path_point
-            cost += self.conf.w_tracking * ca.sumsqr(error)
+            # reference can add constraints instead of a tracking cost
+            self.reference.add_endpoint_constraints(self.opti, endpoint, path_point)
+            cost += self.conf.w_tracking * self.reference.tracking_cost(endpoint, path_point)
 
             fatigue_mean = ca.sum1(self.X[n:, k]) / m
             cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
@@ -261,23 +281,25 @@ class MusculoskeletalOCP:
         filename = dir / f"{tag}.npz"
         return self.ocp_result.save_npz(filename)
 
-def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
+def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=800, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
 
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
 
     if reference is None:
-        reference = Circular1DOF(
-            r1=0.3,
-            tz=0.2,
-            theta=0.0,
-            h=0.6,
-            r2=0.1
+        reference = SphereReference(
+            radius=0.1,
+            initial_center=np.array([0.3, 0.6, 0.3]),
+            center_bounds=np.array([
+                [0.0, 0.6],  # x
+                [0.3, 0.9],  # y
+                [0.0, 0.6],  # z
+            ]),
         )
-
+        
     ocp = MusculoskeletalOCP.from_model(
         model=model,
-        f_dynamics_func=MODEL_CONFIG[model_name]["f_dynamics_func_path"],
+        f_dynamics_func=None,
         i_dynamics_func=MODEL_CONFIG[model_name]["i_dynamics_func_path"],
         dataset=MODEL_CONFIG[model_name]["dataset_path"],
         reference=reference,
@@ -322,10 +344,11 @@ def visualize_ocp_result(model_name: str, ocp_result_path=None, *, reference=Non
     )
 
 
+
 if __name__ == "__main__":
 
-    model_name = "tsm_4DOF"
+    model_name = "tsm_3DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=300, timestep=0.01, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
+    solve_ocp(model_name, force_index=0, horizon=600, timestep=0.01, save_motion=True, tag="test", muscles=["DeltoideusScapula_M", "Infraspinatus_S"])  #"Supraspinatus_P"
 
     visualize_ocp_result(model_name, block=True)
