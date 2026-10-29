@@ -59,6 +59,20 @@ class OCPconfig:
             w_fatigue=w_fatigue,
         )
 
+class SecondOrderIntegrator:
+    def __init__(self, n_coordinates):
+        self.n_coordinates = n_coordinates
+
+    def __call__(self, state_and_control):
+        n_states = 2 * self.n_coordinates
+        x = state_and_control[:n_states]
+        u = state_and_control[n_states:]
+
+        dx = []
+        for i in range(self.n_coordinates):
+            dx.extend((x[2*i + 1], u[i]))
+        return ca.vertcat(*dx)
+
 class MusculoskeletalOCP:
     def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, task, joint_states, muscle_states, conf, N=None):
         self.kinematics = kinematics
@@ -104,7 +118,7 @@ class MusculoskeletalOCP:
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
         muscle_states = MuscleStates.from_model(model, muscles=muscles)
-        f_dynamics = ca.Function.load(str(f_dynamics_func))
+        f_dynamics = ca.Function.load(str(f_dynamics_func)) if f_dynamics_func else SecondOrderIntegrator(joint_states.size // 2)
         i_dynamics = ca.external("F", str(i_dynamics_func))
         fatigue = FatigueModel.from_npz(dataset, muscle_states)
         conf = OCPconfig.from_model(model, horizon, timestep)
@@ -292,7 +306,7 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
 
     ocp = MusculoskeletalOCP.from_model(
         model=model,
-        f_dynamics_func=MODEL_CONFIG[model_name]["f_dynamics_func_path"],
+        f_dynamics_func=None,
         i_dynamics_func=MODEL_CONFIG[model_name]["i_dynamics_func_path"],
         dataset=MODEL_CONFIG[model_name]["dataset_path"],
         task=task,
