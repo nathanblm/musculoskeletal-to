@@ -3,7 +3,7 @@ import tqdm
 import numpy as np
 import casadi as ca
 
-from .msk_data import MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates, MODEL_CONFIG
+from .msk_data import MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates, MODEL_CONFIG, Interpolants
 
 from rmr_solver import RMRsolver, ActSquared
 import os
@@ -30,18 +30,19 @@ class FatigueModel:
         )
         self.valid_indices = np.flatnonzero(valid)
 
-        self.axes_list = None
-        self.fatigue_rate_grid = None
-        self.muscle_force_grid = None
+        self.interpolants = Interpolants.empty()
+
         self._init_grids_for_casadi_interpolants(force_index=force_index, filter_success=True)
+
+        self.interpolants.save_npz(MODEL_CONFIG["tsm_3DOF"]["interpolants_path"])
 
     @property
     def rate_interpolant(self):
-        return ca.interpolant("rate_interpolator", "linear", self.axes_list, self.fatigue_rate_grid)
+        return self.interpolants.interpolant("fatigue")
 
     @property
     def mf_interpolant(self):
-        return ca.interpolant("mf_interpolator", "linear", self.axes_list, self.muscle_force_grid)
+        return self.interpolants.interpolant("muscle_force")
 
     @classmethod
     def from_npz(cls, npz_path: Path, muscle_states: MuscleStates, *, force_index: int = 0):
@@ -63,6 +64,12 @@ class FatigueModel:
             for i in range(n_coordinates)
         ]
         self.axes_list = [axis.tolist() for axis in self.axes]
+        self.interpolants.axes_list = self.axes_list
+        self.interpolants.joint_coordinate_names = tuple(self.data.info.joint_coordinate_names)
+        self.interpolants.muscle_names = tuple(
+            self.data.info.muscle_names[i] for i in self.muscle_states.indexes
+        )
+        self.interpolants.force = self.data.samples.forces[force_index].copy()
 
         # the amount of grid points per joint coordinate axis
         grid_shape = tuple(len(axis) for axis in self.axes)          # shape = (n_q1, ...,  n_qN)
@@ -80,16 +87,14 @@ class FatigueModel:
             grid_order = tuple(reversed(range(n_coordinates))) + (n_coordinates,)                       # shape (n_qN, ...,  n_q1, n_muscles)
             return grid.transpose(grid_order).ravel(order="C").tolist()
         
-        self.fatigue_rate_grid = _build_reversed_grid(fatigue_rates)                                    # shape (n_qN, ...,  n_q1, n_muscles)
-        self.muscle_force_grid = _build_reversed_grid(muscle_forces)                                    # shape (n_qN, ...,  n_q1, n_muscles) 
+        self.interpolants.fatigue_rate_grid = _build_reversed_grid(fatigue_rates)                                    # shape (n_qN, ...,  n_q1, n_muscles)
+        self.interpolants.muscle_force_grid = _build_reversed_grid(muscle_forces)                                    # shape (n_qN, ...,  n_q1, n_muscles) 
 
     def muscle_state_derivative(self, qk: ca.MX, mk: ca.MX, from_interpolants: bool = True):
         if from_interpolants:
             return self.from_interpolants(qk, mk)
-        
         # more implementations...
-        
-        
+
     def from_interpolants(self, qk: ca.MX, mk: ca.MX):  
         rates_k = self.rate_interpolant(qk)
         forces_k = self.mf_interpolant(qk)
@@ -108,6 +113,7 @@ class FatigueModel:
         )
 
         return df
+
 
     def evaluate_nn_batch(self, q: np.ndarray):                                                 # shape (N, n_coordinates)
         qs = self.data.samples.joint_coordinates[self.valid_indices]                            # shape (n_valid_samples, n_coordinates)
@@ -151,6 +157,7 @@ class FatigueModel:
 
         return X_muscles           # shape (n_muscles, N)
 
+
 def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, initial_fatigue=None):
     from .msk_data import OCPResult, FatigueValidationData, JointStates
     ocp_result = OCPResult.from_npz(MODEL_CONFIG[model_name]["ocp_result_path"])
@@ -175,7 +182,7 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
         )
         validation_data.save_npz(MODEL_CONFIG[model_name]["ocp_validation_path"])
 
-    from .visualizer import Visualizer
+    from .visuals.visualizer import Visualizer
     visualizer = Visualizer(model=model, data=fatigue_model.data)
     return visualizer.compare_muscle_state_trajectories(
         ocp_result,
@@ -185,4 +192,14 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
 
 if __name__ == "__main__":
     model_name = "tsm_3DOF"
-    compare_muscle_state_trajectories(model_name, force_index=0)
+
+    from .msk_data import OCPResult, FatigueValidationData, JointStates
+    ocp_result = OCPResult.from_npz(MODEL_CONFIG[model_name]["ocp_result_path"])
+
+    import opensim as osim
+    model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
+    joint_states = JointStates.from_model(model)
+    muscle_states = MuscleStates.from_model(model, muscles=ocp_result.muscle_names)
+    fatigue_model = FatigueModel.from_npz(
+        MODEL_CONFIG[model_name]["dataset_path"], muscle_states, force_index=0
+    )

@@ -40,11 +40,12 @@ MODEL_CONFIG = {
     },
     "tsm_3DOF": {
         "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
-        "dataset_path": "results/tsm_3DOF/datasets/msk_dataset_p1e4_m1_d1_fx-20_fy0_fz0.npz",
+        "dataset_path": "results/tsm_3DOF/datasets/msk_dataset_p3e4_m1_d1_left_regular.npz",
         "f_dynamics_func_path": "musculoskeletal_models/tsm_3DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/tsm_3DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/tsm_3DOF/ocp/results/test.npz",
         "ocp_validation_path": "results/tsm_3DOF/ocp/validation/test.npz",
+        "interpolants_path": "results/tsm_3DOF/datasets/interpolants.npz",
         "reference_marker": "ac",
         "agonists": ["BIC_long", "BIC_brevis"],
         "antagonists": ["TRIlong"],
@@ -415,3 +416,53 @@ class MuscleStates:
     def size(self) -> int:
         return len(self.names)
 
+@dataclass
+class Interpolants:
+    """Self-contained linear maps in saved joint and muscle order.
+
+    Values use CasADi ordering: muscles vary fastest, then joint coordinate 0.
+    Each axis retains its model coordinate units (radians for rotational joints).
+    """
+    axes_list: list[list[float]]
+    fatigue_rate_grid: list[float]
+    muscle_force_grid: list[float]
+    joint_coordinate_names: tuple[str, ...]
+    muscle_names: tuple[str, ...]
+    force: np.ndarray
+
+    @classmethod
+    def empty(cls):
+        return cls([], [], [], (), (), np.zeros(3))
+
+    def interpolant(self, field="fatigue"):
+        """Build the same linear map used by the fatigue model and its plots."""
+        import casadi as ca
+        values = {"fatigue": self.fatigue_rate_grid,
+                  "muscle_force": self.muscle_force_grid}[field]
+        return ca.interpolant(f"{field}_interpolator", "linear", self.axes_list, values)
+
+    @classmethod
+    def from_npz(cls, path):
+        with np.load(path, allow_pickle=False) as archive:
+            names = tuple(archive["joint_coordinate_names"].tolist())
+            return cls(
+                axes_list=[archive[f"axis_{i}"].tolist() for i in range(len(names))],
+                fatigue_rate_grid=archive["fatigue_rate_grid"].tolist(),
+                muscle_force_grid=archive["muscle_force_grid"].tolist(),
+                joint_coordinate_names=names,
+                muscle_names=tuple(archive["muscle_names"].tolist()),
+                force=archive["force"].copy(),
+            )
+
+    def save_npz(self, path):
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Separate axis arrays also support unequal grid lengths without pickle.
+        np.savez_compressed(
+            path, **{f"axis_{i}": axis for i, axis in enumerate(self.axes_list)},
+            fatigue_rate_grid=self.fatigue_rate_grid,
+            muscle_force_grid=self.muscle_force_grid,
+            joint_coordinate_names=self.joint_coordinate_names,
+            muscle_names=self.muscle_names, force=self.force,
+        )
+        return path

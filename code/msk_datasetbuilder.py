@@ -8,7 +8,7 @@ import multiprocessing as mp
 from itertools import islice
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from rmr_solver import RMRsolver, ActSquared
-from .visualizer import Visualizer
+from .visuals.visualizer import Visualizer
 from .msk_data import ModelInfo, OCPResult, SampleInputs, SampleResults, FatigueParameters, \
       MSKdataset, RMRconfig, FatigueValidationData, MODEL_CONFIG
 

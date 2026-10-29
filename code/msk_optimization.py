@@ -7,7 +7,7 @@ import numpy as np
 
 import opensim as osim
 from .sk_kinematics import Kinematics
-from .visualizer import Visualizer
+from .visuals.visualizer import Visualizer
 from .msk_fatiguemodel import FatigueModel
 from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
 from .references import Circular2DOF, Circular1DOF, ReferencePath
@@ -260,6 +260,7 @@ class MusculoskeletalOCP:
 
         filename = dir / f"{tag}.npz"
         return self.ocp_result.save_npz(filename)
+
 
 def solve_ocp(model_name: str, force_index: int = 0, reference=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
 
