@@ -100,6 +100,8 @@ class MusculoskeletalOCP:
         self.task_param_rates = self.opti.variable(
             len(self.task.initial_rates), self.conf.N - 1
         )
+        self.task_parameters_solution = None
+        self.task_param_rates_solution = None
 
         self.set_initial_trajectory()
 
@@ -135,7 +137,7 @@ class MusculoskeletalOCP:
         position_indices = np.arange(0, n, 2)
 
         # initial muscle state
-        self.opti.subject_to(self.X[n:, 0] == np.zeros(m))
+        self.opti.subject_to(self.X[n:, 0] == np.full(m, 0.0))
 
         # joint limits
         for i, row in enumerate(position_indices):
@@ -160,8 +162,9 @@ class MusculoskeletalOCP:
         # cost function
         cost = 0
         for k in range(self.conf.N):
-            fatigue_mean = ca.sum1(self.X[n:, k]) / m
-            cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
+            cost += (
+                1e-1 * self.conf.dt * ca.sumsqr(self.X[n:, k])
+            )
 
         # path constraints and dynamics
         for k in range(self.conf.N - 1):
@@ -202,6 +205,10 @@ class MusculoskeletalOCP:
         endpoint_positions = np.asarray(endpoint_FK(solution.value(self.X[position_indices, :])))
         task_values = np.atleast_2d(
             np.asarray(solution.value(self.task_params), dtype=float)
+        )
+        self.task_parameters_solution = task_values
+        self.task_param_rates_solution = np.atleast_2d(
+            np.asarray(solution.value(self.task_param_rates), dtype=float)
         )
         task_positions = np.column_stack([
             np.asarray(self.task.evaluate(task_values[:, k]), dtype=float).reshape(3)
@@ -300,7 +307,7 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
         #    r2=0.1
         #)
         task = SphericalRegion(
-            center=np.array([0.3, 0.6, 0.2]),
+            center=np.array([-0.22686198,  0.39980641,  0.28600239]),
             radius=0.1,
         )
 
@@ -316,6 +323,9 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
     )
 
     result = ocp.solve()
+    from .msk_opti_debug import print_constraint_violations
+    print_constraint_violations(ocp, result)
+
     ocp.save_result(model_name=model_name, tag=tag)
 
     if save_motion:
@@ -352,8 +362,8 @@ def visualize_ocp_result(model_name: str, ocp_result_path=None, *, block=True):
 
 if __name__ == "__main__":
 
-    model_name = "tsm_4DOF"
+    model_name = "tsm_3DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=300, timestep=0.01, save_motion=True, tag="test", muscles=["TeresMinor", "Supraspinatus_A"])  #"Supraspinatus_P"
+    solve_ocp(model_name, force_index=0, horizon=600, timestep=0.01, save_motion=True, tag="test", muscles=["DeltoideusScapula_M", "Infraspinatus_S"]) 
 
     visualize_ocp_result(model_name, block=True)

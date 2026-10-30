@@ -67,36 +67,34 @@ class Task(ABC):
 
 
 class SphericalRegion(Task):
-    """Track a moving point on a sphere while keeping the endpoint nearby."""
+    """Optimize a translating sphere containing the endpoint.
+
+    Task parameters are the center's Cartesian coordinates in meters; their
+    rates are Cartesian velocities, limited to +/-0.3 m/s on each axis.
+    ``center`` specifies the initial center and ``radius`` stays fixed.
+    """
     def __init__(self, center, radius):
-        self.center = np.asarray(center)
+        self.center = np.asarray(center, dtype=float).reshape(3)
         self.radius = radius
 
     @property
     def parameter_bounds(self):
-        return np.array([[-np.inf, np.inf], [-np.inf, np.inf]])
+        return np.array([[-np.inf, np.inf]] * 3)
 
     @property
     def rate_bounds(self):
-        return np.array([[-0.3, 0.3], [-0.3, 0.3]])
+        return np.array([[-0.3, 0.3]] * 3)
 
     @property
     def initial_parameters(self):
-        return np.array([0.0, 0.0])
+        return self.center.copy()
 
     @property
     def initial_rates(self):
-        return np.array([0.0, 0.01])
+        return np.zeros(3)
 
     def evaluate(self, parameters: ca.MX):
-        x = self.center[0] + self.radius * ca.cos(parameters[0]) * ca.sin(
-            parameters[1]
-        )
-        y = self.center[1] + self.radius * ca.sin(parameters[0]) * ca.sin(
-            parameters[1]
-        )
-        z = self.center[2] + self.radius * ca.cos(parameters[1])
-        return ca.vertcat(x, y, z)
+        return ca.vertcat(parameters[0], parameters[1], parameters[2])
 
     def _additional_boundary_constraints(self, opti, parameters, rates, **kwargs):
         # terminal constraint

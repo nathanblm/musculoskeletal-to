@@ -1,9 +1,11 @@
+from functools import cached_property
 from pathlib import Path
 import tqdm
 import numpy as np
 import casadi as ca
 
-from .msk_data import MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates, MODEL_CONFIG, Interpolants
+from .msk_data import (MSKdataset, ModelInfo, OCPResult, JointStates, MuscleStates,
+                       MODEL_CONFIG, Interpolants, FatigueParameters)
 
 from rmr_solver import RMRsolver, ActSquared
 import os
@@ -16,6 +18,10 @@ class FatigueModel:
     def __init__(self, dataset: MSKdataset, muscle_states: MuscleStates, *, force_index: int = 0):
         self.data = dataset
         self.muscle_states = muscle_states
+
+        self.threshold = FatigueParameters.from_max_forces(
+            dataset.info.muscle_max_forces
+        ).threshold
 
         # currently only supports nearest-neighbor lookup for joint coordinates.
         # would provide a very rough estimate if endpoint force not exactly the same as the dataset force.
@@ -36,11 +42,11 @@ class FatigueModel:
 
         self.interpolants.save_npz(MODEL_CONFIG["tsm_3DOF"]["interpolants_path"])
 
-    @property
+    @cached_property
     def rate_interpolant(self):
         return self.interpolants.interpolant("fatigue")
 
-    @property
+    @cached_property
     def mf_interpolant(self):
         return self.interpolants.interpolant("muscle_force")
 
@@ -102,7 +108,7 @@ class FatigueModel:
         params = self.data.fatigue_params
 
         recovery_rates = params.recovery / params.capacity[self.muscle_states.indexes]
-        thresholds = params.threshold[self.muscle_states.indexes]
+        thresholds = self.threshold[self.muscle_states.indexes]
 
         active = forces_k >= thresholds
 
@@ -141,7 +147,7 @@ class FatigueModel:
         for k in range(N - 1):
             previous = X_muscles[:, k]
 
-            active = forces[k] >= params.threshold[muscle_indexes]
+            active = forces[k] >= self.threshold[muscle_indexes]
 
             derivative = np.where(
                 active,

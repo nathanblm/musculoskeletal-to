@@ -202,7 +202,7 @@ class FatigueParameters:
     threshold: np.ndarray                           # (n_muscles,)
 
     @classmethod
-    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.01, R=300.0):
+    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.1, R=300.0):
         # based on formula from https://doi.org/10.1016/j.rcim.2019.01.013
         max_forces = np.asarray(max_forces, dtype=float)
         capacity = - (T * max_forces) / np.log(1 - 0.993)
@@ -434,7 +434,7 @@ class Interpolants:
         import casadi as ca
         values = {"fatigue": self.fatigue_rate_grid,
                   "muscle_force": self.muscle_force_grid}[field]
-        return ca.interpolant(f"{field}_interpolator", "linear", self.axes_list, values)
+        return ca.interpolant(f"{field}_interpolator", "bspline", self.axes_list, values)
 
     @classmethod
     def from_npz(cls, path):

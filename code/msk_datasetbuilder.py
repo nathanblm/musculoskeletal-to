@@ -614,6 +614,7 @@ def overwrite_sample_dominance(model_name: str, dataset_npz_path: str, agonist: 
     msk_builder.compute_sample_fatigue_dominance()
     msk_builder.save_msk_dataset(tag="left")
 
+
 if __name__ == "__main__":
 
     model_name = "tsm_4DOF"
@@ -621,8 +622,8 @@ if __name__ == "__main__":
     overwrite_sample_dominance(
        model_name,
        dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-       agonist=["TeresMinor",],                                     # red 
-       antagonist=["Supraspinatus_P"],          # blue
+       agonist=["DeltoideusScapula_M",],                                     # red 
+       antagonist=["Infraspinatus_S"],          # blue
     )
 
     dataset_demo(
