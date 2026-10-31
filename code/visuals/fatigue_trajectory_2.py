@@ -26,10 +26,10 @@ from ..msk_data import Interpolants, MSKdataset, OCPResult, MODEL_CONFIG, Muscle
 from ..msk_optimization_3cc import ThreeCCModel, ThreeCCParameters, ThreeCCResult
 
 
-def show_fatigue_trajectory_3cc(dataset, interpolants, result, *, muscle=0,
-                                coordinate_axes=None, resolution=60, block=True,
-                                field="fatigue", initial_positions=None):
-    """Return (slice figure, slider); also open a joint-motion comparison figure.
+def _show_fatigue_trajectory_3cc_single(dataset, interpolants, result, *, muscle=0,
+                                        coordinate_axes=None, resolution=60,
+                                        field="fatigue", initial_positions=None):
+    """Build one muscle's slice and joint-motion comparison figures.
 
     Fields: fatigue (dmf/dt), active (dma/dt), load (clipped target load).
     A held-initial-pose replay is a counterfactual baseline, not the infeasible
@@ -275,8 +275,41 @@ def show_fatigue_trajectory_3cc(dataset, interpolants, result, *, muscle=0,
     motion_fig.tight_layout()
     fig._fatigue_trajectory['motion_figure'] = motion_fig
     update(time[0])
-    plt.show(block=block)
     return fig, slider
+
+
+def show_fatigue_trajectory_3cc(dataset, interpolants, result, *, muscle=0,
+                                coordinate_axes=None, resolution=60, block=True,
+                                field="fatigue", initial_positions=None):
+    """Open a separate matching trajectory window for every solved muscle.
+
+    The requested muscle is shown first, followed by the other muscles included
+    in the saved solution. Returns the requested muscle's (figure, slider).
+    """
+    result = OCPResult.from_npz(result) if isinstance(result, (str, Path)) else result
+    if not isinstance(result, ThreeCCResult):
+        raise ValueError('Expected a saved ThreeCCResult from msk_optimization_3cc.')
+    muscle_names = tuple(result.muscle_names)
+    if isinstance(muscle, str):
+        if muscle not in muscle_names:
+            raise ValueError(f'{muscle} was not included in this solution.')
+        requested = muscle
+    else:
+        mi = int(muscle)
+        if not 0 <= mi < len(muscle_names):
+            raise ValueError('Muscle index is outside the solution muscle list.')
+        requested = muscle_names[mi]
+    ordered_muscles = (requested,) + tuple(name for name in muscle_names if name != requested)
+    requested_plot = None
+    for muscle_name in ordered_muscles:
+        plot = _show_fatigue_trajectory_3cc_single(
+            dataset, interpolants, result, muscle=muscle_name,
+            coordinate_axes=coordinate_axes, resolution=resolution,
+            field=field, initial_positions=initial_positions)
+        if muscle_name == requested:
+            requested_plot = plot
+    plt.show(block=block)
+    return requested_plot
 
 
 def main():
