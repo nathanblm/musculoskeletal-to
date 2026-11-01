@@ -78,6 +78,12 @@ def show_fatigue_trajectory(model, dataset, result, *, muscle=0,
     if fatigue_model is not None and fatigue_model != inferred:
         raise ValueError(f'Saved result contains {inferred} states, not {fatigue_model}.')
     fatigue_model = inferred
+    if field == 'active' and fatigue_model != '3cc':
+        raise ValueError(
+            'Saved result contains thresholded fatigue states, with no active '
+            'compartment. Use --field fatigue or --field load; --field active '
+            'requires a saved 3CC optimization result.'
+        )
     fatigue = make_fatigue_model(model, dataset, muscle_name, fatigue_model, force_index)
     field = field or ('active' if fatigue_model == '3cc' else 'fatigue')
     evaluate, label = make_field(fatigue, field)

@@ -40,8 +40,8 @@ def evaluate_constraint_violations(ocp, result=None, *, task_parameters=None,
             np.max(np.maximum(-fatigue_states, 0.0)),
             np.max(np.maximum(fatigue_states - 1.0, 0.0)))),
         "objective": float(result.objective),
-        "fatigue_objective": float(ocp.conf.w_fatigue * np.sum(
-            np.mean(np.asarray(ocp.fatigue_model.fatigue(fatigue_states)), axis=0) ** 2)),
+        "fatigue_objective": float(0.1 * ocp.conf.dt * np.sum(
+            np.asarray(ocp.fatigue_model.fatigue(fatigue_states)) ** 2)),
     }
     if isinstance(ocp.fatigue_model, ThreeCompartment):
         _, resting, _ = ocp.fatigue_model.split_state(fatigue_states)

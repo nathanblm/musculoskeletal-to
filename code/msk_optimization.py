@@ -114,7 +114,7 @@ class MusculoskeletalOCP:
         timestep,
         muscles: list[str] = None,
         force_index: int = 0,
-        fatigue_model_type: type[FatigueModel] = ThreeCompartment,
+        fatigue_model_type: type[FatigueModel] = Thresholded,
     ):
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
@@ -164,11 +164,11 @@ class MusculoskeletalOCP:
             endpoint=terminal_endpoint,
         )
 
-        # cost function
+
         cost = 0
         for k in range(self.conf.N):
-            cost += (
-                1e-1 * self.conf.dt * ca.sumsqr(self.X[n:, k])
+            cost += 0.1 * dt * ca.sumsqr(
+                self.fatigue_model.fatigue(self.X[n:, k])
             )
 
         # path constraints and dynamics
@@ -366,6 +366,6 @@ if __name__ == "__main__":
 
     model_name = "tsm_3DOF"
 
-    solve_ocp(model_name, force_index=0, horizon=100, timestep=0.01, save_motion=True, tag="test", muscles=["DeltoideusScapula_M", "Infraspinatus_S"]) 
+    solve_ocp(model_name, force_index=0, horizon=1000, timestep=0.01, save_motion=True, tag="test", muscles=["DeltoideusScapula_M", "Infraspinatus_S"]) 
 
     visualize_ocp_result(model_name, block=True)
