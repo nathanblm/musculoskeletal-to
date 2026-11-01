@@ -236,8 +236,8 @@ class ThresholdedParams:
 @dataclass
 class ThreeCompartmentParams:
     # based on formulations from 10.1016/j.jbiomech.2008.07.013 and 10.1016/j.humov.2024.103182.
-    R: float = 0.00094                  # recovery rate
-    F: float = 0.00912                  # fatigue rate
+    R: float = 0.94                  # recovery rate
+    F: float = 0.912                  # fatigue rate
     r: float = 1.0                      # rest recovery multiplier
     LD: np.ndarray = 10.0               # muscle force development factor                   
     LR: np.ndarray = 10.0               # muscle force relaxation factor# muscle force recovery factor
@@ -310,13 +310,13 @@ class MSKdataset:
     info: ModelInfo
     samples: SampleInputs
     results: SampleResults
-    fatigue_params: FatigueParameters
 
     @classmethod
     def from_npz(cls, path):
         """Load a trusted archive containing a pickled MSKdataset."""
         with np.load(path, allow_pickle=True) as archive:
             dataset = archive["dataset"].item()
+        dataset.__dict__.pop("fatigue_params", None)
         return dataset
 
     def save_npz(self, path):
@@ -396,49 +396,6 @@ class JointStates:
     @property
     def x(self) -> np.ndarray:
         return np.column_stack((self.angles, self.velocities)).ravel()
-
-@dataclass
-class MuscleStates:
-    names: tuple[str, ...]                  # len(n_muscles)
-    indexes: np.ndarray                     # (n_muscles,)
-    fatigue: np.ndarray                     # (n_muscles,)
-    max_forces: np.ndarray                  # (n_muscles,)
-
-    @classmethod
-    def from_model(cls, model, *, muscles: list[str] = None):
-        info = ModelInfo.from_model(model)
-
-        if muscles is None:
-            return cls(
-                names=info.muscle_names,
-                indexes=np.arange(len(info.muscle_names)),
-                fatigue=np.zeros(len(info.muscle_names)),
-                max_forces=info.muscle_max_forces,
-            )
-
-        names = []
-        fatigue = []
-        max_forces = []
-        indexes = []
-        for muscle_name in muscles:
-            if muscle_name not in info.muscle_names:
-                raise ValueError(f"Muscle '{muscle_name}' not found in model.")
-            index = info.muscle_names.index(muscle_name)
-            names.append(info.muscle_names[index])
-            fatigue.append(0.0)
-            max_forces.append(info.muscle_max_forces[index])
-            indexes.append(index)
-
-        return cls(
-            names=tuple(names),
-            fatigue=np.array(fatigue),
-            max_forces=np.array(max_forces),
-            indexes=np.array(indexes),
-        )
-
-    @property
-    def size(self) -> int:
-        return len(self.names)
 
 @dataclass
 class MuscleInfo:

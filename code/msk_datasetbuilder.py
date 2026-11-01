@@ -127,9 +127,9 @@ class MusculoskeletalDatasetBuilder:
 
         dataset = MSKdataset.from_npz(npz_path)
         builder.info = dataset.info
+        builder.fatigue_params = FatigueParameters.from_max_forces(builder.info.muscle_max_forces)
         builder.inputs = dataset.samples
         builder.results = dataset.results
-        builder.fatigue_params = dataset.fatigue_params
 
         return builder
 
@@ -364,7 +364,6 @@ class MusculoskeletalDatasetBuilder:
             info=self.info,
             samples=self.inputs,
             results=self.results,
-            fatigue_params=self.fatigue_params,
         )
         return dataset.save_npz(output_path)
 
@@ -374,7 +373,6 @@ class MusculoskeletalDatasetBuilder:
             info=saved.info,
             samples=saved.inputs,
             results=saved.results,
-            fatigue_params=saved.fatigue_params,
         )
         return Visualizer(
             model=self.model,

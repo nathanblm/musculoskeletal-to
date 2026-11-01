@@ -274,8 +274,14 @@ class Visualizer:
 
     @staticmethod
     def _muscle_states(ocp_result, states):
-        """Muscle rows follow the interleaved joint position/speed rows."""
-        return np.asarray(states, dtype=float)[2 * len(ocp_result.pos_indices):]
+        """Extract fatigued muscle fractions from thresholded or 3CC states."""
+        muscle_rows = np.asarray(states, dtype=float)[2 * len(ocp_result.pos_indices):]
+        n_muscles = len(ocp_result.muscle_names)
+        if muscle_rows.shape[0] == 3 * n_muscles:
+            return muscle_rows[2 * n_muscles:]
+        if muscle_rows.shape[0] == n_muscles:
+            return muscle_rows
+        raise ValueError("OCP muscle state count does not match saved muscle names")
 
     @staticmethod
     def _style_state_axis(axis, title, ylabel):
@@ -394,6 +400,8 @@ class Visualizer:
         validation_states = np.asarray(validation_states, dtype=float)
 
         selected, saved_names, ocp_muscle_states = self._ocp_muscle_selection(ocp_result)
+        if validation_states.shape[0] == 3 * len(saved_names):
+            validation_states = validation_states[2 * len(saved_names):]
         discrete_muscle_states = self._muscle_states(ocp_result, ocp_result.val_states)
 
         columns = min(3, len(selected))
