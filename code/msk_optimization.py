@@ -221,6 +221,8 @@ class MusculoskeletalOCP:
             task=task_positions,
             objective=solution.value(self.opti.f),
             muscle_names=self.fatigue_model.muscles.names,
+            fatigue_model=("3cc" if isinstance(self.fatigue_model, ThreeCompartment)
+                           else "thresholded" if isinstance(self.fatigue_model, Thresholded) else ""),
         )
 
         # forward simulation of muscle states using nearest neighbor evaluation of discrete rate and force maps
@@ -291,7 +293,11 @@ class MusculoskeletalOCP:
         return self.ocp_result.save_npz(filename)
 
 
-def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None):
+def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None, *, fatigue_model="thresholded"):
+
+    model_types = {"thresholded": Thresholded, "3cc": ThreeCompartment}
+    if fatigue_model not in model_types:
+        raise ValueError("fatigue_model must be 'thresholded' or '3cc'.")
 
     import opensim as osim
     model = osim.Model(MODEL_CONFIG[model_name]["model_path"])
@@ -325,6 +331,7 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
         timestep=timestep,
         muscles=muscles,
         force_index=force_index,
+        fatigue_model_type=model_types[fatigue_model],
     )
 
     result = ocp.solve()
@@ -362,10 +369,30 @@ def visualize_ocp_result(model_name: str, ocp_result_path=None, *, block=True):
     )
 
 
+def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Optimize a thresholded or three-compartment fatigue trajectory.")
+    parser.add_argument("--model", default="tsm_3DOF", choices=MODEL_CONFIG)
+    parser.add_argument("--fatigue-model", choices=("thresholded", "3cc"), default="thresholded")
+    parser.add_argument("--horizon", type=int, default=600)
+    parser.add_argument("--timestep", type=float, default=0.01)
+    parser.add_argument("--force-index", type=int, default=0)
+    parser.add_argument("--muscles", nargs="+", default=["DeltoideusScapula_M", "Infraspinatus_S"])
+    parser.add_argument("--tag", help="Result filename stem; defaults to test_<fatigue-model>.")
+    parser.add_argument("--no-show", action="store_true")
+    parser.add_argument("--no-save-motion", action="store_true")
+    args = parser.parse_args()
+    tag = args.tag or f"test_{args.fatigue_model}"
+    print(f"Fatigue model: {args.fatigue_model}; result tag: {tag}")
+    solve_ocp(args.model, force_index=args.force_index, horizon=args.horizon,
+              timestep=args.timestep, save_motion=not args.no_save_motion,
+              tag=tag, muscles=args.muscles, fatigue_model=args.fatigue_model)
+    result_path = Path(__file__).resolve().parent.parent / "results" / args.model / "ocp" / "results" / f"{tag}.npz"
+    print(f"Saved result: {result_path}")
+    if not args.no_show:
+        visualize_ocp_result(args.model, ocp_result_path=result_path, block=True)
+
+
 if __name__ == "__main__":
-
-    model_name = "tsm_3DOF"
-
-    solve_ocp(model_name, force_index=0, horizon=1000, timestep=0.01, save_motion=True, tag="test", muscles=["DeltoideusScapula_M", "Infraspinatus_S"]) 
-
-    visualize_ocp_result(model_name, block=True)
+    main()

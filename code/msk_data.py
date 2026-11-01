@@ -337,6 +337,7 @@ class OCPResult:
     objective: float
     tag: str = ""
     muscle_names: tuple[str, ...] = ()
+    fatigue_model: str = ""  # Empty for legacy results; otherwise thresholded or 3cc.
 
     @classmethod
     def from_npz(cls, path):

@@ -75,6 +75,9 @@ def show_fatigue_trajectory(model, dataset, result, *, muscle=0,
                 '3cc' if count in (2 * len(result_muscles), 3 * len(result_muscles)) else None)
     if inferred is None or states.shape[1] != time.size or indices.size != nq:
         raise ValueError('Saved result state shape does not match its joints and muscles.')
+    recorded_model = getattr(result, 'fatigue_model', '')
+    if recorded_model and recorded_model != inferred:
+        raise ValueError(f'Saved model label {recorded_model!r} does not match the state layout ({inferred}).')
     if fatigue_model is not None and fatigue_model != inferred:
         raise ValueError(f'Saved result contains {inferred} states, not {fatigue_model}.')
     fatigue_model = inferred
@@ -254,7 +257,7 @@ def main():
     parser.add_argument('--result')
     parser.add_argument('--muscle', default='0')
     parser.add_argument('--fatigue-model', choices=('thresholded', '3cc'),
-                        help='Validate the inferred model type against this choice.')
+                        help='Load test_<model>.npz by default and validate its model type.')
     parser.add_argument('--field', choices=('fatigue', 'active', 'load'))
     parser.add_argument('--force-index', type=int, default=0)
     parser.add_argument('--coordinate-axes', nargs=2, type=int, default=None,
@@ -265,9 +268,13 @@ def main():
     args = parser.parse_args()
     config = MODEL_CONFIG[args.model]
     muscle = int(args.muscle) if args.muscle.isdecimal() else args.muscle
+    result_path = args.result or (
+        str(Path(config['ocp_result_path']).with_name(f'test_{args.fatigue_model}.npz'))
+        if args.fatigue_model else config['ocp_result_path']
+    )
     show_fatigue_trajectory(
         osim.Model(config['model_path']), args.dataset or config['dataset_path'],
-        args.result or config['ocp_result_path'], muscle=muscle,
+        result_path, muscle=muscle,
         fatigue_model=args.fatigue_model, field=args.field,
         force_index=args.force_index, coordinate_axes=args.coordinate_axes,
         resolution=args.resolution, show=not args.no_show, save=args.save,
