@@ -37,7 +37,6 @@ class FatigueModel(ABC):
         mask = (
             results.sample_success[:, self.force_index]
             & np.isfinite(samples.joint_coordinates).all(axis=1)
-            & np.isfinite(results.sample_fatigue_rates[:, self.force_index, :]).all(axis=1)
             & np.isfinite(results.sample_muscle_forces[:, self.force_index, :]).all(axis=1)
         ) 
         return mask
@@ -71,8 +70,6 @@ class FatigueModel(ABC):
         if np.prod(grid_shape) != len(joint_coordinates):
             raise ValueError("Valid joint samples do not form a complete interpolation grid")
 
-        fatigue_rates = self.dataset.results.sample_fatigue_rates[
-            indices, self.force_index, :][:, self.muscles.indexes]
         muscle_forces = self.dataset.results.sample_muscle_forces[
             indices, self.force_index, :][:, self.muscles.indexes]
 
@@ -82,8 +79,12 @@ class FatigueModel(ABC):
             grid_order = tuple(reversed(range(n_coordinates))) + (n_coordinates,)                       # shape (n_qN, ...,  n_q1, n_muscles)
             return grid.transpose(grid_order).ravel(order="C").tolist()
         
-        self.interpolants.fatigue_rate_grid = _build_reversed_grid(fatigue_rates)
+        self.interpolants.fatigue_rate_grid = _build_reversed_grid(self.rates_from_forces(muscle_forces))
         self.interpolants.muscle_force_grid = _build_reversed_grid(muscle_forces)
+
+    @abstractmethod
+    def rates_from_forces(self, forces):
+        """Compute model-specific production coefficients from selected muscle forces."""
 
     @property
     @abstractmethod
@@ -114,12 +115,10 @@ class FatigueModel(ABC):
 
         muscle_indexes = self.muscles.indexes
 
-        rates = self.dataset.results.sample_fatigue_rates[
-            nn_indices, self.force_index, :][:, muscle_indexes]         # shape (N, n_muscles)
         forces = self.dataset.results.sample_muscle_forces[
             nn_indices, self.force_index, :][:, muscle_indexes]        # shape (N, n_muscles)
         
-        return rates, forces
+        return self.rates_from_forces(forces), forces
 
     def simulate_muscle_states(self, q: np.ndarray, m: np.ndarray, dt: float, N: int,
                                method="nearest", *, rates=None, forces=None):
@@ -151,9 +150,11 @@ class FatigueModel(ABC):
 
 class Thresholded(FatigueModel):
     def __init__(self, dataset: MSKdataset, muscles: MuscleInfo, *, force_index: int = 0):
+        self.params = ThresholdedParams.from_max_forces(muscles.max_forces)
         super().__init__(dataset, muscles, force_index=force_index)
 
-        self.params = ThresholdedParams.from_max_forces(muscles.max_forces)
+    def rates_from_forces(self, forces):
+        return np.asarray(forces) / self.params.capacity
 
     @property
     def n_states(self) -> int:
@@ -186,9 +187,11 @@ class Thresholded(FatigueModel):
 
 class ThreeCompartment(FatigueModel):
     def __init__(self, dataset: MSKdataset, muscles: MuscleInfo, *, force_index: int = 0):
+        self.params = ThreeCompartmentParams()
         super().__init__(dataset, muscles, force_index=force_index)
 
-        self.params = ThreeCompartmentParams()
+    def rates_from_forces(self, forces):
+        return self.params.F * np.asarray(forces) / self.muscles.max_forces
     
     @property
     def n_states(self) -> int:
@@ -286,7 +289,7 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
             m=initial_states,
             dt=ocp_result.time[1] - ocp_result.time[0],
             N=ocp_result.time.size,
-            rates=validation_data.fatigue_rates[:, muscles.indexes],
+            rates=fatigue_model.rates_from_forces(validation_data.muscle_forces[:, muscles.indexes]),
             forces=validation_data.muscle_forces[:, muscles.indexes],
         )
         validation_data.save_npz(MODEL_CONFIG[model_name]["ocp_validation_path"])

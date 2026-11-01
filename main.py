@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 from code.msk_data import MODEL_CONFIG
-from code.msk_datasetbuilder import build_msk_dataset, build_validation_dataset, dataset_demo
+from code.msk_datasetbuilder import build_msk_dataset, build_validation_dataset
 from code.msk_fatiguemodel import compare_muscle_state_trajectories
 from code.msk_optimization import solve_ocp, visualize_ocp_result
 from code.visuals.fatigue_trajectory import show_fatigue_trajectory
@@ -19,19 +19,24 @@ DATASET_TAG = "left_regular"
 FORCE_MAGNITUDES = [20.0]
 FORCE_DIRECTIONS = [[0.0, -1.0, 0.0]]
 FORCE_INDEX = 0
-HORIZON = 300
+HORIZON = 600
 TIMESTEP = 0.01
 OCP_TAG = "demo"  # Each run appends its fatigue model name.
-FATIGUE_MODELS = ("thresholded", "3cc")
+FATIGUE_MODELS = ("3cc", "thresholded")  # "3cc" or "thresholded"
 SHOW_GRADIENT_VISUALS = True
 GRADIENT_RESOLUTION = 60
 ACTIVATION_DYNAMICS = True
 FILTER_SUCCESS = True
-SHOW_DATASET_VISUALS = True
-CYCLE_DOMINANCE_FORCES = False
-SHOW_OCP_VISUAL = True
+SHOW_TRAJECTORY_VISUAL = True
 BLOCK_OCP_VISUAL = False
-OCP_MUSCLES = ["TeresMinor", "Supraspinatus_A"] #"Supraspinatus_P",
+OCP_MUSCLES = [
+    "DeltoideusScapula_M",
+    "Supraspinatus_A",
+    #"Infraspinatus_S",
+    #"TeresMinor",
+    #"PectoralisMajorThorax_M",
+    #"LatissimusDorsi_M",
+]
 
 
 def main():
@@ -49,14 +54,6 @@ def main():
     )
     MODEL_CONFIG[MODEL_NAME]["dataset_path"] = str(dataset_path)
 
-    if SHOW_DATASET_VISUALS:
-        dataset_demo(
-            MODEL_NAME,
-            str(dataset_path),
-            endpoint_marker=MODEL_CONFIG[MODEL_NAME]["reference_marker"],
-            cycle_dominance_forces=CYCLE_DOMINANCE_FORCES,
-        )
-
     ocp_dir = ROOT / "results" / MODEL_NAME / "ocp"
     runs = {}
     for fatigue_model in FATIGUE_MODELS:
@@ -73,6 +70,13 @@ def main():
             fatigue_model=fatigue_model,
         )
         runs[fatigue_model] = (result, result_path)
+
+        if SHOW_TRAJECTORY_VISUAL:
+            visualize_ocp_result(
+                MODEL_NAME,
+                ocp_result_path=result_path,
+                block=BLOCK_OCP_VISUAL,
+            )
 
     if SHOW_GRADIENT_VISUALS:
         import matplotlib.pyplot as plt
@@ -100,12 +104,6 @@ def main():
         validation_path = ocp_dir / "validation" / result_path.name
         MODEL_CONFIG[MODEL_NAME]["ocp_result_path"] = str(result_path)
         MODEL_CONFIG[MODEL_NAME]["ocp_validation_path"] = str(validation_path)
-        if SHOW_OCP_VISUAL:
-            visualize_ocp_result(
-                MODEL_NAME,
-                ocp_result_path=result_path,
-                block=BLOCK_OCP_VISUAL,
-            )
 
         build_validation_dataset(
             MODEL_NAME,

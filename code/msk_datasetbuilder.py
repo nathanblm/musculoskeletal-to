@@ -9,7 +9,7 @@ from itertools import islice
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from rmr_solver import RMRsolver, ActSquared
 from .visuals.visualizer import Visualizer
-from .msk_data import ModelInfo, OCPResult, SampleInputs, SampleResults, FatigueParameters, \
+from .msk_data import ModelInfo, OCPResult, SampleInputs, SampleResults, \
       MSKdataset, RMRconfig, FatigueValidationData, MODEL_CONFIG
 
 osim.Logger.setLevelString("Error")
@@ -100,11 +100,10 @@ class RMRWorkerContext:
 
 
 class MusculoskeletalDatasetBuilder:
-    def __init__(self, model, info: ModelInfo, config: RMRconfig, fatique_params: FatigueParameters, *, model_path=None):
+    def __init__(self, model, info: ModelInfo, config: RMRconfig, *, model_path=None):
         self.model = model
         self.info = info
         self.config = config
-        self.fatigue_params = fatique_params
         
         self.model_path = Path(model_path).resolve() if model_path is not None else None
         self.state = model.initSystem()
@@ -117,8 +116,7 @@ class MusculoskeletalDatasetBuilder:
     def from_model(cls, model, *, model_path=None, agonists=(), antagonists=()):
         info = ModelInfo.from_model(model, agonists=agonists, antagonists=antagonists)
         config = RMRconfig.from_model_info(info)
-        fatigue_params = FatigueParameters.from_max_forces(info.muscle_max_forces)
-        builder = cls(model, info, config, fatigue_params, model_path=model_path)
+        builder = cls(model, info, config, model_path=model_path)
         return builder
 
     @classmethod
@@ -127,7 +125,6 @@ class MusculoskeletalDatasetBuilder:
 
         dataset = MSKdataset.from_npz(npz_path)
         builder.info = dataset.info
-        builder.fatigue_params = FatigueParameters.from_max_forces(builder.info.muscle_max_forces)
         builder.inputs = dataset.samples
         builder.results = dataset.results
 
@@ -310,11 +307,6 @@ class MusculoskeletalDatasetBuilder:
 
         return self.results
 
-    def compute_sample_fatigue_rates(self):
-        rates = self.results.sample_muscle_forces / self.fatigue_params.capacity[None, None, :]
-        self.results.sample_fatigue_rates = rates
-        return rates
-
     def compute_sample_fatigue_dominance(self):
         agonists = self.info.agonist_muscles
         antagonists = self.info.antagonist_muscles
@@ -323,8 +315,10 @@ class MusculoskeletalDatasetBuilder:
         agonist_indices = [self.info.muscle_names.index(name) for name in agonists]
         antagonist_indices = [self.info.muscle_names.index(name) for name in antagonists]
 
-        agonist_fatigue = self.results.sample_fatigue_rates[:, :, agonist_indices].sum(axis=2)
-        antagonist_fatigue = self.results.sample_fatigue_rates[:, :, antagonist_indices].sum(axis=2)
+        # The common force-to-rate factor cancels in the dominance ratio.
+        loads = self.results.sample_muscle_forces / self.info.muscle_max_forces[None, None, :]
+        agonist_fatigue = loads[:, :, agonist_indices].sum(axis=2)
+        antagonist_fatigue = loads[:, :, antagonist_indices].sum(axis=2)
 
         numerator = agonist_fatigue - antagonist_fatigue
         denominator = agonist_fatigue + antagonist_fatigue
@@ -400,7 +394,6 @@ class MusculoskeletalDatasetBuilder:
         f_N = np.broadcast_to(f, (N, f.size))
 
         val_muscle_forces = np.empty((N, len(self.info.muscle_names)))
-        val_rates = np.empty((N, len(self.info.muscle_names)))
         val_succes = np.empty(N, dtype=bool)
 
         for i in range(N):
@@ -418,7 +411,6 @@ class MusculoskeletalDatasetBuilder:
         if filter_succes:
             val_muscle_forces = val_muscle_forces[val_succes]
 
-        rates = val_muscle_forces / self.fatigue_params.capacity[None, :]
 
         self.validation = FatigueValidationData(
             tag=ocp_result.tag,
@@ -427,7 +419,7 @@ class MusculoskeletalDatasetBuilder:
             joint_positions=ocp_result.states[ocp_result.pos_indices, :],
             endpoint_forces=np.broadcast_to(f, (N, f.size)),
             muscle_forces=val_muscle_forces,
-            fatigue_rates=rates,
+            fatigue_rates=np.empty((0, len(self.info.muscle_names))),
             success=val_succes
         )
 
@@ -463,7 +455,9 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
         antagonists=config["antagonists"],
     )
 
-    # Reuse the explicitly configured single-force dataset if it is already saved.
+    # Reuse a current-format single-force dataset when available. Legacy
+    # archives are rebuilt because their removed fatigue parameter cannot be
+    # unpickled safely.
     if magnitudes is not None and directions is not None:
         configured_magnitudes = np.asarray(magnitudes, dtype=float).reshape(-1)
         configured_directions = np.asarray(directions, dtype=float).reshape(-1, 3)
@@ -478,9 +472,15 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
                 / f"msk_dataset_p{_scientific_int(n_positions)}_m1_d1_{saved_tag}.npz"
             )
             if dataset_path.exists():
-                MSKdataset.from_npz(dataset_path)
-                print(f"Loading existing dataset: {dataset_path}")
-                return dataset_path
+                try:
+                    MSKdataset.from_npz(dataset_path)
+                except AttributeError as error:
+                    if "FatigueParameters" not in str(error):
+                        raise
+                    print(f"Rebuilding legacy dataset: {dataset_path}")
+                else:
+                    print(f"Loading existing dataset: {dataset_path}")
+                    return dataset_path
 
     if regular:
         msk_builder.generate_regular_position_samples(n_samples_per_coordinate=n_samples)
@@ -507,7 +507,6 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
         workers=mp.cpu_count(),
         activation_dynamics=False,
     )
-    msk_builder.compute_sample_fatigue_rates()
     msk_builder.compute_sample_fatigue_dominance()
     return msk_builder.save_msk_dataset(tag=tag, regular=regular)
 

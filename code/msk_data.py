@@ -196,32 +196,13 @@ class SampleResults:
         )
 
 @dataclass
-class FatigueParameters:
-    capacity: np.ndarray                            # C, (n_muscles,)
-    recovery: float                                 # R
-    threshold: np.ndarray                           # (n_muscles,)
-
-    @classmethod
-    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.3, R=300.0):
-        # based on formula from https://doi.org/10.1016/j.rcim.2019.01.013
-        max_forces = np.asarray(max_forces, dtype=float)
-        capacity = - (T * max_forces) / np.log(1 - 0.993)
-        threshold = th_frac * max_forces
-        params = cls(
-            capacity=capacity,
-            recovery=R,
-            threshold=threshold,
-        )
-        return params
-
-@dataclass
 class ThresholdedParams:
     capacity: np.ndarray                            # C, (n_muscles,)
     recovery: float                                 # R
     threshold: np.ndarray                           # (n_muscles,)
 
     @classmethod
-    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.01, R=300.0):
+    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.1, R=300.0):
         # based on formula from https://doi.org/10.1016/j.rcim.2019.01.013
         max_forces = np.asarray(max_forces, dtype=float)
         capacity = - (T * max_forces) / np.log(1 - 0.993)
@@ -315,9 +296,7 @@ class MSKdataset:
     def from_npz(cls, path):
         """Load a trusted archive containing a pickled MSKdataset."""
         with np.load(path, allow_pickle=True) as archive:
-            dataset = archive["dataset"].item()
-        dataset.__dict__.pop("fatigue_params", None)
-        return dataset
+            return archive["dataset"].item()
 
     def save_npz(self, path):
         path = Path(path)

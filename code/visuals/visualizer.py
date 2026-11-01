@@ -144,7 +144,13 @@ class Visualizer:
         values, norm, colormap, label = None, None, None, None
         if field != "workspace":
             attribute, label, default_cmap, default_range = self._FIELDS[field]
-            array = getattr(self.data.results, attribute)
+            if field == "fatigue":
+                from ..msk_data import ThresholdedParams
+                params = ThresholdedParams.from_max_forces(self.data.info.muscle_max_forces)
+                array = self.data.results.sample_muscle_forces / params.capacity[None, None, :]
+                label = "Thresholded production coefficient [s^-1]"
+            else:
+                array = getattr(self.data.results, attribute)
             title = label
             if field == "dominance":
                 values = array[:, force_index]
@@ -320,12 +326,12 @@ class Visualizer:
         force_origin=None,
         block=True,
     ):
-        """Show dominance samples and trajectories in Simbody, with fatigue in Matplotlib.
+        """Show the optimization trajectory in Simbody, with fatigue in Matplotlib.
 
         ``ocp_result`` may be an :class:`OCPResult` or a path to its ``.npz``
         archive. Fatigue traces follow the muscle names saved in the result.
         Set ``show_agonist_antagonist`` to overlay configured group means.
-        Returns ``(number_of_map_points, fatigue_figure, fatigue_axis)``.
+        Returns ``(0, fatigue_figure, fatigue_axis)``.
         """
         if isinstance(ocp_result, (str, Path)):
             from ..msk_data import OCPResult
@@ -333,7 +339,6 @@ class Visualizer:
         time = np.asarray(ocp_result.time, dtype=float)
 
         endpoint = ocp_result.endpoint_positions.T
-        task = ocp_result.task.T
 
         _, saved_names, ocp_fatigue = self._ocp_muscle_selection(ocp_result)
         if fatigue_states is None:
@@ -358,29 +363,15 @@ class Visualizer:
 
         fatigue_fig.tight_layout()
         plt.show(block=False)
-        point_count = self.show(
-            "dominance",
-            force_index=force_index,
-            backend="simbody",
-            slice_axis=slice_axis,
-            slice_value=slice_value,
-            reference_marker=reference_marker,
-            tolerance=tolerance,
-            filter_success=filter_success,
-            value_range=value_range,
-            cmap=cmap,
-            max_points=max_points,
+        self._simbody().show(
+            np.empty((0, 3)),
+            np.empty((0, 3)),
+            "Optimization trajectory",
             radius=radius,
-            opacity=opacity,
-            show_force=show_force,
-            force_scale=force_scale,
-            force_origin=force_origin,
             trajectory=endpoint,
-            reference_trajectory=task,
-            block=False,
         )
         plt.show(block=block)
-        return point_count, fatigue_fig, fatigue_ax
+        return 0, fatigue_fig, fatigue_ax
 
     def compare_muscle_state_trajectories(
         self,
