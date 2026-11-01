@@ -146,7 +146,7 @@ class FatigueModel(ABC):
                 1.0,
             )           
 
-        return m           # shape (n_muscles, N)
+        return m           # shape (n_states, N)
 
 
 class Thresholded(FatigueModel):
@@ -192,27 +192,21 @@ class ThreeCompartment(FatigueModel):
     
     @property
     def n_states(self) -> int:
-        return 3 * self.n_muscles
+        return 2 * self.n_muscles
 
     def fatigue(self, state):
-        _, _, mf = self.split_state(state)
-        return mf
+        return state[:self.n_muscles]
 
     def initial_state(self) -> np.ndarray:
-        m = self.n_muscles
-        return np.concatenate((
-            np.zeros(m),  # Ma
-            np.ones(m),   # Mr
-            np.zeros(m),  # Mf
-        ))
+        return np.zeros(self.n_states)  # [Mf, Ma]; Mr = 1 - Mf - Ma
 
     def split_state(self, state):
+        """Return (active, resting, fatigued) from stored [fatigued, active]."""
         m = self.n_muscles
-        return (
-            state[:m],
-            state[m:2 * m],
-            state[2 * m:3 * m],
-        )
+        mf = state[:m]
+        ma = state[m:2 * m]
+        mr = 1 - mf - ma
+        return ma, mr, mf
 
     def derivative(self, q: ca.MX, m: ca.MX) -> ca.MX:
         forces = self.force_interpolant(q)
@@ -235,10 +229,9 @@ class ThreeCompartment(FatigueModel):
         recovery_flow = p.R * mf
 
         dma = control - fatigue_flow
-        dmr = -control + recovery_flow
         dmf = fatigue_flow - recovery_flow
 
-        return ca.vertcat(dma, dmr, dmf)
+        return ca.vertcat(dmf, dma)
 
     def _numerical_derivative(self, state, rates, forces):
         ma, mr, mf = self.split_state(state)
@@ -251,9 +244,8 @@ class ThreeCompartment(FatigueModel):
         )
         fatigue_flow = p.F * ma
         recovery_flow = p.R * mf
-        return np.concatenate((control - fatigue_flow,
-                               -control + recovery_flow,
-                               fatigue_flow - recovery_flow))
+        return np.concatenate((fatigue_flow - recovery_flow,
+                               control - fatigue_flow))
 
 
 def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, initial_fatigue=None):
@@ -268,7 +260,7 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
     muscle_state_count = ocp_result.states.shape[0] - joint_states.size
     if muscle_state_count == muscles.size:
         fatigue_model_type = Thresholded
-    elif muscle_state_count == 3 * muscles.size:
+    elif muscle_state_count in (2 * muscles.size, 3 * muscles.size):
         fatigue_model_type = ThreeCompartment
     else:
         raise ValueError("OCP muscle state count does not match saved muscle names")
@@ -281,12 +273,12 @@ def compare_muscle_state_trajectories(model_name: str, force_index: int = 0, ini
     if (validation_data.muscle_states is None
             or validation_data.muscle_states.shape[0] != fatigue_model.n_states):
         initial_states = ocp_result.states[joint_states.size:, :].copy()
+        if isinstance(fatigue_model, ThreeCompartment) and muscle_state_count == 3 * muscles.size:
+            initial_states = np.vstack((
+                initial_states[2 * muscles.size:], initial_states[:muscles.size]))
         if initial_fatigue is not None:
             if isinstance(fatigue_model, ThreeCompartment):
-                initial_states[2 * muscles.size:, 0] = initial_fatigue
-                initial_states[muscles.size:2 * muscles.size, 0] = (
-                    1 - initial_states[:muscles.size, 0] - initial_states[2 * muscles.size:, 0]
-                )
+                initial_states[:muscles.size, 0] = initial_fatigue
             else:
                 initial_states[:, 0] = initial_fatigue
         validation_data.muscle_states = fatigue_model.simulate_muscle_states(
