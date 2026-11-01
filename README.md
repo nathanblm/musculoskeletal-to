@@ -14,6 +14,7 @@ Configure the demo at the top of [main.py](main.py):
 - `N_SAMPLES`: number of sampled joint configurations used to build the map.
 - `FORCE_MAGNITUDES` and `FORCE_DIRECTIONS`: endpoint forces included in the map; `FORCE_INDEX` selects one for the OCP and validation.
 - `HORIZON` and `TIMESTEP`: OCP horizon length and time step.
+- `OCP_TAG`: shared name for the optimization and validation outputs; the demo uses `demo_3cc`.
 - `ACTIVATION_DYNAMICS` and `FILTER_SUCCESS`: options for generating RMR validation data.
 - `SHOW_DATASET_VISUALS` and `SHOW_OCP_VISUAL`: enable or skip the two visualization steps.
 - `BLOCK_OCP_VISUAL`: set to `True` to wait for the OCP plot window to close before continuing; defaults to `False`.

@@ -19,6 +19,7 @@ FORCE_DIRECTIONS = [[0.0, -1.0, 0.0]]
 FORCE_INDEX = 0
 HORIZON = 800
 TIMESTEP = 0.01
+OCP_TAG = "demo_3cc"
 ACTIVATION_DYNAMICS = True
 FILTER_SUCCESS = True
 SHOW_DATASET_VISUALS = True
@@ -51,19 +52,24 @@ def main():
             cycle_dominance_forces=CYCLE_DOMINANCE_FORCES,
         )
 
-    ocp_result_path = Path(MODEL_CONFIG[MODEL_NAME]["ocp_result_path"])
+    ocp_dir = ROOT / "results" / MODEL_NAME / "ocp"
+    ocp_result_path = ocp_dir / "results" / f"{OCP_TAG}.npz"
+    ocp_validation_path = ocp_dir / "validation" / f"{OCP_TAG}.npz"
+    MODEL_CONFIG[MODEL_NAME]["ocp_result_path"] = str(ocp_result_path)
+    MODEL_CONFIG[MODEL_NAME]["ocp_validation_path"] = str(ocp_validation_path)
     solve_ocp(
         MODEL_NAME,
         force_index=FORCE_INDEX,
         horizon=HORIZON,
         timestep=TIMESTEP,
-        tag=ocp_result_path.stem,
+        tag=OCP_TAG,
         muscles=OCP_MUSCLES,
     )
 
     if SHOW_OCP_VISUAL:
         visualize_ocp_result(
             MODEL_NAME,
+            ocp_result_path=ocp_result_path,
             block=BLOCK_OCP_VISUAL,
         )
 

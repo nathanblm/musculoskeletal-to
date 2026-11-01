@@ -8,10 +8,10 @@ import numpy as np
 import opensim as osim
 from .sk_kinematics import Kinematics
 from .visuals.visualizer import Visualizer
-from .msk_fatiguemodel import FatigueModel
+from .msk_fatiguemodel import ThreeCompartment, Thresholded
 from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
 from .tasks import *
-from .msk_data import JointStates, MuscleStates
+from .msk_data import JointStates, MuscleInfo
 
 @dataclass
 class OCPconfig:
@@ -74,22 +74,21 @@ class SecondOrderIntegrator:
         return ca.vertcat(*dx)
 
 class MusculoskeletalOCP:
-    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue, task, joint_states, muscle_states, conf, N=None):
+    def __init__(self, kinematics, f_dynamics, i_dynamics, fatigue_model, task, joint_states, conf, N=None):
         self.kinematics = kinematics
         self.f_dynamics = f_dynamics
         self.i_dynamics = i_dynamics
-        self.fatigue = fatigue
+        self.fatigue_model = fatigue_model
         self.task = task
         self.conf = conf
         self.ocp_result = OCPResult.empty()
 
-        self.muscle_states = muscle_states
         self.joint_states = joint_states
 
         self.opti = ca.Opti()
 
         self.X = self.opti.variable(
-            self.joint_states.x.size + self.muscle_states.fatigue.size,
+            self.joint_states.x.size + self.fatigue_model.n_states,
             self.conf.N,
         )
         self.U = self.opti.variable(self.joint_states.torques.size, self.conf.N - 1)       # [a1, a2, ..., an] * (N-1)
@@ -114,28 +113,29 @@ class MusculoskeletalOCP:
         horizon,
         timestep,
         muscles: list[str] = None,
+        force_index: int = 0,
     ):
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
-        muscle_states = MuscleStates.from_model(model, muscles=muscles)
+        muscle_info = MuscleInfo.from_model(model, muscles=muscles)
         f_dynamics = ca.Function.load(str(f_dynamics_func)) if f_dynamics_func else SecondOrderIntegrator(joint_states.size // 2)
         i_dynamics = ca.external("F", str(i_dynamics_func))
-        fatigue = FatigueModel.from_npz(dataset, muscle_states)
+        fatigue_model = ThreeCompartment(MSKdataset.from_npz(dataset), muscle_info, force_index=force_index)
         conf = OCPconfig.from_model(model, horizon, timestep)
 
-        return cls(kinematics, f_dynamics, i_dynamics, fatigue, task, joint_states, muscle_states, conf)
+        return cls(kinematics, f_dynamics, i_dynamics, fatigue_model, task, joint_states, conf)
 
     def solve(self):
         endpoint_FK = self.kinematics.endpoint_function
         n = self.joint_states.x.size
-        m = self.muscle_states.fatigue.size
+        m = self.fatigue_model.n_muscles
         u = self.joint_states.torques.size
         dt = self.conf.dt
 
         position_indices = np.arange(0, n, 2)
 
         # initial muscle state
-        self.opti.subject_to(self.X[n:, 0] == np.zeros(m))
+        self.opti.subject_to(self.X[n:, 0] == self.fatigue_model.initial_state())
 
         # joint limits
         for i, row in enumerate(position_indices):
@@ -160,7 +160,7 @@ class MusculoskeletalOCP:
         # cost function
         cost = 0
         for k in range(self.conf.N):
-            fatigue_mean = ca.sum1(self.X[n:, k]) / m
+            fatigue_mean = ca.sum1(self.fatigue_model.fatigue(self.X[n:, k])) / m
             cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
 
         # path constraints and dynamics
@@ -192,7 +192,7 @@ class MusculoskeletalOCP:
             qk = self.X[position_indices, k]
             mk = self.X[n:, k]
 
-            df = self.fatigue.muscle_state_derivative(qk, mk, from_interpolants=True)
+            df = self.fatigue_model.derivative(qk, mk)
             self.opti.subject_to(self.X[n:, k + 1] == self.X[n:, k] + self.conf.dt * df)
 
         self.opti.minimize(cost)
@@ -217,14 +217,15 @@ class MusculoskeletalOCP:
             endpoint_positions=endpoint_positions,
             task=task_positions,
             objective=solution.value(self.opti.f),
-            muscle_names=self.muscle_states.names,
+            muscle_names=self.fatigue_model.muscles.names,
         )
 
         # forward simulation of muscle states using nearest neighbor evaluation of discrete rate and force maps
         # for comparison with the interpolated fatigue dynamics used in the OCP
         self.ocp_result.val_states[:n, :] = self.ocp_result.states[:n, :]
-        self.ocp_result.val_states[n:, :] = self.fatigue.simulate_muscle_states(
-            self.ocp_result.states[position_indices, :],
+        self.ocp_result.val_states[n:, 0] = self.fatigue_model.initial_state()
+        self.ocp_result.val_states[n:, :] = self.fatigue_model.simulate_muscle_states(
+            self.ocp_result.states[position_indices, :].T,
             self.ocp_result.val_states[n:, :],
             dt=self.conf.dt,
             N=self.conf.N,
@@ -243,7 +244,7 @@ class MusculoskeletalOCP:
         positions, _ = self.kinematics.inverse_kinematics(path_start)                           # shape (n_coordinates,)
         velocities = np.zeros_like(positions)                                                   # shape (n_coordinates,)
         accelerations = np.zeros_like(positions)                                                # shape (n_coordinates,)
-        muscle_state = np.zeros_like(self.muscle_states.fatigue)                                # shape (n_muscles,)
+        muscle_state = self.fatigue_model.initial_state()
         joint_state = np.column_stack((positions, velocities)).ravel()                          # shape (2*n_coordinates,)
         torques = self.i_dynamics(
             np.concatenate((joint_state, accelerations)))[:len(positions)]                      # shape (n_coordinates,)
@@ -300,7 +301,7 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
         #    r2=0.1
         #)
         task = SphericalRegion(
-            center=np.array([0.3, 0.6, 0.2]),
+            center=np.array([-0.22686198,  0.39980641,  0.28600239]),
             radius=0.1,
         )
 
@@ -312,7 +313,8 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
         task=task,
         horizon=horizon,
         timestep=timestep,
-        muscles=muscles
+        muscles=muscles,
+        force_index=force_index,
     )
 
     result = ocp.solve()

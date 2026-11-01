@@ -215,6 +215,35 @@ class FatigueParameters:
         return params
 
 @dataclass
+class ThresholdedParams:
+    capacity: np.ndarray                            # C, (n_muscles,)
+    recovery: float                                 # R
+    threshold: np.ndarray                           # (n_muscles,)
+
+    @classmethod
+    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.01, R=300.0):
+        # based on formula from https://doi.org/10.1016/j.rcim.2019.01.013
+        max_forces = np.asarray(max_forces, dtype=float)
+        capacity = - (T * max_forces) / np.log(1 - 0.993)
+        threshold = th_frac * max_forces
+        params = cls(
+            capacity=capacity,
+            recovery=R,
+            threshold=threshold,
+        )
+        return params
+
+@dataclass
+class ThreeCompartmentParams:
+    # based on formulations from 10.1016/j.jbiomech.2008.07.013 and 10.1016/j.humov.2024.103182.
+    R: float = 0.94                  # recovery rate
+    F: float = 0.912                  # fatigue rate
+    r: float = 1.0                      # rest recovery multiplier
+    LD: np.ndarray = 10.0               # muscle force development factor                   
+    LR: np.ndarray = 10.0               # muscle force relaxation factor# muscle force recovery factor
+
+
+@dataclass
 class RMRconfig:
     muscle_weights: np.ndarray
     reserve_actuator_weights: np.ndarray
@@ -281,13 +310,13 @@ class MSKdataset:
     info: ModelInfo
     samples: SampleInputs
     results: SampleResults
-    fatigue_params: FatigueParameters
 
     @classmethod
     def from_npz(cls, path):
         """Load a trusted archive containing a pickled MSKdataset."""
         with np.load(path, allow_pickle=True) as archive:
             dataset = archive["dataset"].item()
+        dataset.__dict__.pop("fatigue_params", None)
         return dataset
 
     def save_npz(self, path):
@@ -369,10 +398,9 @@ class JointStates:
         return np.column_stack((self.angles, self.velocities)).ravel()
 
 @dataclass
-class MuscleStates:
+class MuscleInfo:
     names: tuple[str, ...]                  # len(n_muscles)
     indexes: np.ndarray                     # (n_muscles,)
-    fatigue: np.ndarray                     # (n_muscles,)
     max_forces: np.ndarray                  # (n_muscles,)
 
     @classmethod
@@ -383,12 +411,10 @@ class MuscleStates:
             return cls(
                 names=info.muscle_names,
                 indexes=np.arange(len(info.muscle_names)),
-                fatigue=np.zeros(len(info.muscle_names)),
                 max_forces=info.muscle_max_forces,
             )
 
         names = []
-        fatigue = []
         max_forces = []
         indexes = []
         for muscle_name in muscles:
@@ -396,13 +422,11 @@ class MuscleStates:
                 raise ValueError(f"Muscle '{muscle_name}' not found in model.")
             index = info.muscle_names.index(muscle_name)
             names.append(info.muscle_names[index])
-            fatigue.append(0.0)
             max_forces.append(info.muscle_max_forces[index])
             indexes.append(index)
 
         return cls(
             names=tuple(names),
-            fatigue=np.array(fatigue),
             max_forces=np.array(max_forces),
             indexes=np.array(indexes),
         )
@@ -410,7 +434,7 @@ class MuscleStates:
     @property
     def size(self) -> int:
         return len(self.names)
-
+    
 @dataclass
 class Interpolants:
     """Self-contained linear maps in saved joint and muscle order.
@@ -429,10 +453,10 @@ class Interpolants:
     def empty(cls):
         return cls([], [], [], (), (), np.zeros(3))
 
-    def interpolant(self, field="fatigue"):
+    def interpolant(self, field="fatigue_rate"):
         """Build the same linear map used by the fatigue model and its plots."""
         import casadi as ca
-        values = {"fatigue": self.fatigue_rate_grid,
+        values = {"fatigue_rate": self.fatigue_rate_grid,
                   "muscle_force": self.muscle_force_grid}[field]
         return ca.interpolant(f"{field}_interpolator", "linear", self.axes_list, values)
 
