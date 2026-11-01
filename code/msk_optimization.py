@@ -114,7 +114,7 @@ class MusculoskeletalOCP:
         timestep,
         muscles: list[str] = None,
         force_index: int = 0,
-        fatigue_model_type: type[FatigueModel] = Thresholded,
+        fatigue_model_type: type[FatigueModel] = ThreeCompartment,
     ):
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
@@ -167,8 +167,9 @@ class MusculoskeletalOCP:
         # cost function
         cost = 0
         for k in range(self.conf.N):
-            fatigue_mean = ca.sum1(self.fatigue_model.fatigue(self.X[n:, k])) / m
-            cost += self.conf.w_fatigue * ca.sumsqr(fatigue_mean)
+            cost += (
+                1e-1 * self.conf.dt * ca.sumsqr(self.X[n:, k])
+            )
 
         # path constraints and dynamics
         for k in range(self.conf.N - 1):
