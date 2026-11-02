@@ -1,6 +1,7 @@
 .vscode/
 *__pycache__/
-tests/
+tests/*
+!tests/test_msk_mpc.py
 
 /results/*
 

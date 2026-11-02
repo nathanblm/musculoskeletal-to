@@ -22,6 +22,7 @@ class SimbodyRenderer:
         self.point_ids, self.line_ids = [], []
         self.trajectory_line_ids, self.reference_line_ids = [], []
         self.circular_path_line_ids = []
+        self.prediction_line_ids, self.prediction_marker_ids = [], []
         self.trajectory_marker_ids = []
         self.caption_id = None
 
@@ -49,6 +50,15 @@ class SimbodyRenderer:
     def marker_position(self, name):
         position = self.model.getMarkerSet().get(name).getLocationInGround(self.state)
         return np.array([position.get(i) for i in range(3)])
+
+    def set_joint_positions(self, positions, time=0.0):
+        """Set unlocked coordinates in the same order as the OCP joint states."""
+        coordinates = [coordinate for coordinate in self.model.getCoordinateSet()
+                       if not coordinate.get_locked()]
+        self.state.setTime(float(time))
+        for coordinate, position in zip(coordinates, positions):
+            coordinate.setValue(self.state, float(position), False)
+        self.model.realizePosition(self.state)
 
     def _add(self, geometry):
         return self.visualizer.addDecoration(self.ground, self.osim.Transform(), geometry)
@@ -133,7 +143,7 @@ class SimbodyRenderer:
 
     def show(self, points, colors, caption, *, force=None, radius=0.006,
              opacity=1.0, force_scale=0.01, force_origin=None,
-             trajectory=None, reference=None, circular_path=None):
+             trajectory=None, reference=None, circular_path=None, prediction=None):
         # Update every decoration first, then display once.
         self._set_spheres(points, colors, self.point_ids, radius, opacity)
         self._set_force(force, force_scale, force_origin)
@@ -142,6 +152,10 @@ class SimbodyRenderer:
         self._set_path(trajectory, self.trajectory_line_ids, (1.0, 0.15, 0.05), 5)
         self._set_path(reference, self.reference_line_ids, (0.55, 0.55, 0.55), 2)
         self._set_path(circular_path, self.circular_path_line_ids, (0.95, 0.65, 0.1), 3)
+        self._set_path(prediction, self.prediction_line_ids, (0.95, 0.65, 0.1), 3)
+        predicted_endpoints = () if prediction is None else (prediction[0], prediction[-1])
+        self._set_spheres(predicted_endpoints, ((0.95, 0.65, 0.1),) * 2,
+                          self.prediction_marker_ids, max(2 * radius, 0.008))
         self._set_trajectory_markers(trajectory, radius)
         self._set_caption(caption)
         self.model.getVisualizer().show(self.state)

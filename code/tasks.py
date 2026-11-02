@@ -42,12 +42,12 @@ class Task(ABC):
         # position limits
         lower, upper = np.asarray(self.parameter_bounds).T
         opti.subject_to(opti.bounded(lower, parameters, upper))
-        opti.subject_to(parameters[:, 0] == self.initial_parameters)
+        opti.subject_to(parameters[:, 0] == kwargs.get("initial_parameters", self.initial_parameters))
 
         # velocity limits
         lower, upper = np.asarray(self.rate_bounds).T
         opti.subject_to(opti.bounded(lower, rates, upper))
-        opti.subject_to(rates[:, 0] == self.initial_rates)
+        opti.subject_to(rates[:, 0] == kwargs.get("initial_rates", self.initial_rates))
 
         self._additional_boundary_constraints(opti, parameters, rates, **kwargs)
 

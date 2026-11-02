@@ -33,7 +33,7 @@ def evaluate_constraint_violations(ocp, result=None, *, task_parameters=None,
         "control_limit": bound_violation(
             controls, -ocp.conf.control_lim[:, None], ocp.conf.control_lim[:, None]),
         "initial_fatigue_state": max_abs(
-            fatigue_states[:, 0] - ocp.fatigue_model.initial_state()),
+            fatigue_states[:, 0] - np.asarray(ocp.opti.value(ocp.x_initial)).reshape(-1)[n_joint:]),
         "fatigue_state_min": float(np.min(fatigue_states)),
         "fatigue_state_max": float(np.max(fatigue_states)),
         "fatigue_beyond_unit_interval": float(max(
@@ -54,8 +54,8 @@ def evaluate_constraint_violations(ocp, result=None, *, task_parameters=None,
         r_lo, r_hi = np.asarray(ocp.task.rate_bounds).T
         report["task_parameter_bounds"] = bound_violation(parameters, p_lo[:, None], p_hi[:, None])
         report["task_rate_bounds"] = bound_violation(rates, r_lo[:, None], r_hi[:, None])
-        report["initial_task_parameters"] = max_abs(parameters[:, 0] - ocp.task.initial_parameters)
-        report["initial_task_rates"] = max_abs(rates[:, 0] - ocp.task.initial_rates)
+        report["initial_task_parameters"] = max_abs(parameters[:, 0] - np.asarray(ocp.opti.value(ocp.task_initial)).reshape(-1))
+        report["initial_task_rates"] = max_abs(rates[:, 0] - np.asarray(ocp.opti.value(ocp.task_rate_initial)).reshape(-1))
         report["task_parameter_integration"] = max_abs(
             parameters[:, 1:] - parameters[:, :-1] - rates * ocp.conf.dt)
         task_points = np.column_stack([

@@ -149,7 +149,10 @@ class FatigueModel(ABC):
 
 
 class Thresholded(FatigueModel):
-    def __init__(self, dataset: MSKdataset, muscles: MuscleInfo, *, force_index: int = 0):
+    def __init__(self, dataset: MSKdataset, muscles: MuscleInfo, *, force_index: int = 0,
+                 transition_width: float = 0.0):
+        # Width as a fraction of each muscle's maximum force; zero keeps the hard switch.
+        self.transition_width = transition_width
         self.params = ThresholdedParams.from_max_forces(muscles.max_forces)
         super().__init__(dataset, muscles, force_index=force_index)
 
@@ -171,6 +174,12 @@ class Thresholded(FatigueModel):
         forces = self.force_interpolant(q)
         active = forces >= self.params.threshold
 
+        if self.transition_width > 0:
+            active = 0.5 * (1 + ca.tanh(
+                (forces - self.params.threshold) / (self.transition_width * self.muscles.max_forces)))
+            return (active * (1 - fatigue) * rates
+                    - (1 - active) * fatigue * (self.params.recovery / self.params.capacity))
+
         return ca.if_else(
             active,
             (1 - fatigue) * rates,
@@ -178,6 +187,11 @@ class Thresholded(FatigueModel):
         )
 
     def _numerical_derivative(self, state, rates, forces):
+        if self.transition_width > 0:
+            active = 0.5 * (1 + np.tanh(
+                (forces - self.params.threshold) / (self.transition_width * self.muscles.max_forces)))
+            return (active * (1 - state) * rates
+                    - (1 - active) * state * (self.params.recovery / self.params.capacity))
         return np.where(
             forces >= self.params.threshold,
             (1 - state) * rates,
