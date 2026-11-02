@@ -14,7 +14,7 @@ ROOT = Path(__file__).resolve().parent
 
 # Demo settings. Change these values to configure the pipeline.
 MODEL_NAME = "tsm_3DOF"
-N_SAMPLES = 18
+N_SAMPLES = 25
 DATASET_TAG = "left_regular"
 FORCE_MAGNITUDES = [20.0]
 FORCE_DIRECTIONS = [[0.0, -1.0, 0.0]]

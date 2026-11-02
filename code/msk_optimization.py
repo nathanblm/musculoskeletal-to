@@ -375,7 +375,7 @@ def main():
     parser = argparse.ArgumentParser(description="Optimize a thresholded or three-compartment fatigue trajectory.")
     parser.add_argument("--model", default="tsm_3DOF", choices=MODEL_CONFIG)
     parser.add_argument("--fatigue-model", choices=("thresholded", "3cc"), default="3cc")
-    parser.add_argument("--horizon", type=int, default=600)
+    parser.add_argument("--horizon", type=int, default=100)
     parser.add_argument("--timestep", type=float, default=0.01)
     parser.add_argument("--force-index", type=int, default=0)
     parser.add_argument("--muscles", nargs="+", default=["DeltoideusScapula_M", "Infraspinatus_S"])
