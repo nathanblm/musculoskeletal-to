@@ -20,20 +20,29 @@ from code.visuals.live_fatigue import LiveFatiguePlot
 
 ROOT = Path(__file__).resolve().parent
 MODEL_NAME = "tsm_3DOF"
+MOVING_TASK_REGION = False  # Hold the sphere fixed for the load-sharing experiment.
 FORCE_INDEX = 0
 HORIZON = 25
 TIMESTEP = 0.05
 STEPS_PER_UPDATE = 1
-FATIGUE_MODEL = "3cc"  # "thresholded" or "3cc"
+FATIGUE_MODEL = "thresholded"  # "thresholded" or "3cc"
 THRESHOLD_TRANSITION_WIDTH = 0.01  # Fraction of maximum force; 0 uses the hard switch.
 DURATION = None  # Run until Ctrl+C; set seconds for a finite experiment.
 DISPLAY_HISTORY = 20.0  # Seconds of executed history in the live windows.
 TAG = "demo"  # The selected fatigue model is appended to the filename.
 MUSCLES = [
-    "Coracobrachialis",
-    "TRIlong",
+    "TeresMajor",
     "Infraspinatus_S",
 ]
+COST_OPTIONS = {
+    "w_fatigue": 1.0,
+    "w_fatigue_rate": 0.1,
+    "w_overlap": 1.0,
+    "w_control": 1e-5,
+    "muscle_pairs": (
+        ("TeresMajor", "Infraspinatus_S"),
+    ),
+}
 SHOW_FATIGUE = True
 BLOCK_FATIGUE = True  # Keep the fatigue plot open after the simulation.
 SHOW_SIMBODY = True
@@ -47,9 +56,9 @@ def main():
     os.chdir(ROOT)
     config = MODEL_CONFIG[MODEL_NAME]
     model = osim.Model(config["model_path"])
-    # As in the OCP demo, the sphere center is optimized and moves with the task.
     task = SphericalRegion(
         center=np.array([-0.22686198, 0.39980641, 0.28600239]), radius=0.1,
+        moving=MOVING_TASK_REGION,
     )
     ocp = MusculoskeletalOCP.from_model(
         model, None, config["i_dynamics_func_path"], config["dataset_path"],
@@ -58,6 +67,7 @@ def main():
         fatigue_model_type={"thresholded": Thresholded, "3cc": ThreeCompartment}[FATIGUE_MODEL],
         fatigue_model_options=({"transition_width": THRESHOLD_TRANSITION_WIDTH}
                                if FATIGUE_MODEL == "thresholded" else None),
+        cost_options=COST_OPTIONS,
     )
     ocp.conf.s_opts = dict(ocp.conf.s_opts, print_level=0)
     ocp.opti.solver("ipopt", ocp.conf.p_opts, ocp.conf.s_opts)
@@ -150,14 +160,15 @@ def main():
             prediction=controller.result.endpoint_positions.T,
         )
     position_indices = np.arange(0, ocp.joint_states.size, 2)
+    controls = np.column_stack(controls)
+    cost_terms = ocp.evaluate_objective(states, controls, include_terminal=False, timestep=dt)
     result = OCPResult(
         time=np.arange(n_steps + 1) * dt,
         states=states, val_states=np.empty((0, 0)), pos_indices=position_indices,
-        controls=np.column_stack(controls),
+        controls=controls,
         endpoint_positions=np.asarray(ocp.kinematics.endpoint_function(states[position_indices])),
         task=np.column_stack(task_points),
-        objective=float(0.1 * dt * np.sum(np.asarray(
-            ocp.fatigue_model.fatigue(states[ocp.joint_states.size:, :-1]))**2)),
+        objective=sum(cost_terms.values()),
         tag=f"{TAG}_{FATIGUE_MODEL}", muscle_names=ocp.fatigue_model.muscles.names,
         fatigue_model=FATIGUE_MODEL,
     )
@@ -166,8 +177,13 @@ def main():
     np.savez_compressed(output.with_name(f"{result.tag}_timing.npz"),
                         solve_times=solve_times, sample_time=dt,
                         fatigue_model=FATIGUE_MODEL,
-                        threshold_transition_width=getattr(ocp.fatigue_model, "transition_width", 0.0))
+                        threshold_transition_width=getattr(ocp.fatigue_model, "transition_width", 0.0),
+                        cost_names=tuple(cost_terms), cost_values=tuple(cost_terms.values()),
+                        w_fatigue=ocp.conf.w_fatigue, w_fatigue_rate=ocp.conf.w_fatigue_rate,
+                        w_overlap=ocp.conf.w_overlap, w_control=ocp.conf.w_control,
+                        muscle_pairs=ocp.conf.muscle_pairs)
     print(f"Saved executed trajectory: {output}")
+    print(f"Executed objective components: {cost_terms}")
     if fatigue_plot is not None:
         import matplotlib.pyplot as plt
         plt.show(block=BLOCK_FATIGUE and not stop_requested)

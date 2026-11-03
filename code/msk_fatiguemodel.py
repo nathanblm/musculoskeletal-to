@@ -169,14 +169,18 @@ class Thresholded(FatigueModel):
     def initial_state(self):
         return np.zeros((self.n_muscles,))
 
+    def loading_indicator(self, q):
+        """Loading branch weight shared by the dynamics and overlap cost."""
+        forces = self.force_interpolant(q)
+        if self.transition_width > 0:
+            return 0.5 * (1 + ca.tanh(
+                (forces - self.params.threshold) / (self.transition_width * self.muscles.max_forces)))
+        return forces >= self.params.threshold
+
     def derivative(self, q: ca.MX, fatigue: ca.MX) -> ca.MX:
         rates = self.rate_interpolant(q)
-        forces = self.force_interpolant(q)
-        active = forces >= self.params.threshold
-
+        active = self.loading_indicator(q)
         if self.transition_width > 0:
-            active = 0.5 * (1 + ca.tanh(
-                (forces - self.params.threshold) / (self.transition_width * self.muscles.max_forces)))
             return (active * (1 - fatigue) * rates
                     - (1 - active) * fatigue * (self.params.recovery / self.params.capacity))
 

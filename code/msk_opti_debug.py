@@ -40,9 +40,10 @@ def evaluate_constraint_violations(ocp, result=None, *, task_parameters=None,
             np.max(np.maximum(-fatigue_states, 0.0)),
             np.max(np.maximum(fatigue_states - 1.0, 0.0)))),
         "objective": float(result.objective),
-        "fatigue_objective": float(0.1 * ocp.conf.dt * np.sum(
-            np.asarray(ocp.fatigue_model.fatigue(fatigue_states)) ** 2)),
     }
+    objective_terms = ocp.evaluate_objective(result.states, controls)
+    report.update({f"{name}_objective": value for name, value in objective_terms.items()})
+    report["objective_component_residual"] = abs(result.objective - sum(objective_terms.values()))
     if isinstance(ocp.fatigue_model, ThreeCompartment):
         _, resting, _ = ocp.fatigue_model.split_state(fatigue_states)
         report["resting_compartment_limit"] = float(np.max(np.maximum(-resting, 0.0)))
@@ -117,7 +118,8 @@ def print_constraint_violations(ocp, result=None, *, task_parameters=None,
             "initial_fatigue_state", "initial_task_parameters", "initial_task_rates",
             "task_parameter_integration", "joint_dynamics_equality", "fatigue_dynamics_equality"),
         "Fatigue impact": (
-            "objective", "fatigue_objective", "fatigue_state_min", "fatigue_state_max",
+            "objective", "fatigue_objective", "fatigue_rate_objective", "overlap_objective",
+            "control_objective", "objective_component_residual", "fatigue_state_min", "fatigue_state_max",
             "fatigue_beyond_unit_interval", "fatigue_interpolant_vs_nearest_neighbor_max_difference",
             "nearest_neighbor_fatigue_min", "nearest_neighbor_fatigue_max"),
     }

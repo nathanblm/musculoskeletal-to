@@ -67,10 +67,11 @@ class Task(ABC):
 
 
 class SphericalRegion(Task):
-    """Optimize a moving sphere center while keeping the endpoint inside it."""
-    def __init__(self, center, radius):
+    """Keep the endpoint inside a sphere with a moving or fixed center."""
+    def __init__(self, center, radius, *, moving=True):
         self.center = np.asarray(center, dtype=float).reshape(3)
         self.radius = radius
+        self.moving = moving
 
     @property
     def parameter_bounds(self):
@@ -92,6 +93,9 @@ class SphericalRegion(Task):
         return ca.vertcat(parameters[0], parameters[1], parameters[2])
 
     def _additional_boundary_constraints(self, opti, parameters, rates, **kwargs):
+        if not self.moving:
+            # The first rate is already fixed to zero by Task's boundary constraint.
+            opti.subject_to(rates[:, 1:] == 0)
         # terminal constraint
         endpoint = kwargs.get("endpoint")
         task_point = self.evaluate(parameters[:, -1])

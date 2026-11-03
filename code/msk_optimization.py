@@ -21,6 +21,9 @@ class OCPconfig:
     w_control: np.ndarray
     w_tracking: np.ndarray
     w_fatigue: np.ndarray
+    w_fatigue_rate: float = 0.0
+    w_overlap: float = 0.0
+    muscle_pairs: tuple = ()
 
     p_opts = {
         "expand": False,
@@ -38,17 +41,19 @@ class OCPconfig:
 
 
     @classmethod
-    def from_model(cls, model, horizon, timestep, *, control_lim=None, w_control=None, w_tracking=None, w_fatigue=None):
+    def from_model(cls, model, horizon, timestep, *, control_lim=None, w_control=None,
+                   w_tracking=None, w_fatigue=None, w_fatigue_rate=0.0,
+                   w_overlap=0.0, muscle_pairs=()):
         info = ModelInfo.from_model(model)
 
         if control_lim is None:
             control_lim = np.full(len(info.joint_coordinate_names), 100)
         if w_control is None:
-            w_control = np.full(len(info.joint_coordinate_names), 1e-3)
+            w_control = np.zeros(len(info.joint_coordinate_names))
         if w_tracking is None:
             w_tracking = 1.0
         if w_fatigue is None:
-            w_fatigue = 1e-3
+            w_fatigue = 0.1
 
         return cls(
             N=horizon,
@@ -57,6 +62,9 @@ class OCPconfig:
             w_control=w_control,
             w_tracking=w_tracking,
             w_fatigue=w_fatigue,
+            w_fatigue_rate=w_fatigue_rate,
+            w_overlap=w_overlap,
+            muscle_pairs=muscle_pairs,
         )
 
 def rk4_step(derivative, state, dt):
@@ -92,6 +100,11 @@ class MusculoskeletalOCP:
         self.ocp_result = OCPResult.empty()
 
         self.joint_states = joint_states
+        self.muscle_pairs = [
+            (self.fatigue_model.muscles.names.index(first),
+             self.fatigue_model.muscles.names.index(second))
+            for first, second in self.conf.muscle_pairs
+        ]
 
         self.opti = ca.Opti()
 
@@ -128,6 +141,7 @@ class MusculoskeletalOCP:
         force_index: int = 0,
         fatigue_model_type: type[FatigueModel] = Thresholded,
         fatigue_model_options=None,
+        cost_options=None,
     ):
         kinematics = Kinematics(model)
         joint_states = JointStates.from_model(model)
@@ -138,9 +152,44 @@ class MusculoskeletalOCP:
             MSKdataset.from_npz(dataset), muscle_info, force_index=force_index,
             **(fatigue_model_options or {}),
         )
-        conf = OCPconfig.from_model(model, horizon, timestep)
+        conf = OCPconfig.from_model(model, horizon, timestep, **(cost_options or {}))
 
         return cls(kinematics, f_dynamics, i_dynamics, fatigue_model, task, joint_states, conf)
+
+    def cost_terms(self, state, control):
+        """Weighted stage costs; rates refer only to the fatigued compartment."""
+        n = self.joint_states.size
+        q = state[:n:2]
+        muscle_state = state[n:]
+        fatigue = self.fatigue_model.fatigue(muscle_state)
+        terms = {
+            "fatigue": ca.sum1(self.conf.w_fatigue * fatigue**2),
+            "fatigue_rate": ca.DM(0),
+            "overlap": ca.DM(0),
+            "control": ca.sum1(self.conf.w_control * control**2),
+        }
+        if self.conf.w_fatigue_rate:
+            rate = self.fatigue_model.fatigue(self.fatigue_model.derivative(q, muscle_state))
+            terms["fatigue_rate"] = self.conf.w_fatigue_rate * ca.sumsqr(ca.fmax(rate, 0))
+        if self.conf.w_overlap and self.muscle_pairs:
+            # Clip interpolation undershoot so negative forces cannot reward overlap.
+            load = ca.fmax(self.fatigue_model.force_interpolant(q), 0) / self.fatigue_model.muscles.max_forces
+            if isinstance(self.fatigue_model, Thresholded):
+                load *= self.fatigue_model.loading_indicator(q)
+            terms["overlap"] = self.conf.w_overlap * sum(
+                load[first] * load[second] for first, second in self.muscle_pairs
+            )
+        return terms
+
+    def evaluate_objective(self, states, controls, *, include_terminal=True, timestep=None):
+        """Integrate the same cost used by the solver on a numerical trajectory."""
+        dt = self.conf.dt if timestep is None else timestep
+        values = np.asarray(self.stage_cost(states[:, :-1], controls)).reshape(4, -1)
+        terms = dict(zip(self.cost_names, dt * values.sum(axis=1)))
+        if include_terminal:
+            fatigue = np.asarray(self.fatigue_model.fatigue(states[self.joint_states.size:, -1])).ravel()
+            terms["fatigue"] += dt * np.sum(self.conf.w_fatigue * fatigue**2)
+        return {name: float(value) for name, value in terms.items()}
 
     def build_problem(self):
         endpoint_FK = self.kinematics.endpoint_function
@@ -180,11 +229,14 @@ class MusculoskeletalOCP:
         )
 
 
-        cost = 0
-        for k in range(self.conf.N):
-            cost += 0.1 * dt * ca.sumsqr(
-                self.fatigue_model.fatigue(self.X[n:, k])
-            )
+        state = ca.MX.sym("state", self.X.size1())
+        control = ca.MX.sym("control", self.U.size1())
+        terms = self.cost_terms(state, control)
+        self.cost_names = tuple(terms)
+        self.stage_cost = ca.Function("stage_cost", [state, control], [ca.vertcat(*terms.values())])
+        # Keep the existing final-node fatigue penalty; other costs apply to intervals.
+        fatigue = self.fatigue_model.fatigue(self.X[n:, -1])
+        cost = dt * ca.sum1(self.conf.w_fatigue * fatigue**2)
 
         # path constraints and dynamics
         for k in range(self.conf.N - 1):
@@ -200,6 +252,7 @@ class MusculoskeletalOCP:
             # force at each RK4 substep posture.
             xk = self.X[:, k]
             uk = self.U[:, k]
+            cost += dt * ca.sum1(self.stage_cost(xk, uk))
             f = lambda state: ca.vertcat(
                 self.f_dynamics(ca.vertcat(state[:n], uk)),
                 self.fatigue_model.derivative(state[position_indices], state[n:]),
@@ -321,7 +374,7 @@ class MusculoskeletalOCP:
         return self.ocp_result.save_npz(filename)
 
 
-def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None, *, fatigue_model="thresholded"):
+def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, timestep=0.1, save_motion=False, tag=None, muscles: list[str] = None, *, fatigue_model="thresholded", cost_options=None):
 
     model_types = {"thresholded": Thresholded, "3cc": ThreeCompartment}
     if fatigue_model not in model_types:
@@ -360,6 +413,7 @@ def solve_ocp(model_name: str, force_index: int = 0, task=None, horizon=100, tim
         muscles=muscles,
         force_index=force_index,
         fatigue_model_type=model_types[fatigue_model],
+        cost_options=cost_options,
     )
 
     result = ocp.solve()

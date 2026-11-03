@@ -33,8 +33,8 @@ This uses the existing dataset configured in `MODEL_CONFIG`; generate it with th
 original pipeline first if it is missing. Settings at the top of `main_mpc.py`
 select the model, muscles, force condition, prediction horizon, and run duration.
 `FATIGUE_MODEL` selects `"thresholded"` (the default) or `"3cc"`; the same MPC
-controller supports both state layouts. The current prediction covers 2.45
-seconds (`50` nodes at `0.05 s`).
+controller supports both state layouts. The current prediction covers 1.2
+seconds (`25` nodes at `0.05 s`).
 
 `DURATION = None` runs continuously until Ctrl+C. The current update is allowed
 to finish, then the complete executed trajectory and timing data are saved
@@ -89,7 +89,50 @@ state on each `solve()`. Calling `solve()` without arguments still runs the
 offline OCP, now with initial joint positions and velocities constrained to the
 initial trajectory state. MPC carries fatigue, task parameters, and task rates
 between horizons and shifts the previous prediction as its next initial guess.
-The sphere center remains a moving optimization variable, as in the OCP demo.
+`MOVING_TASK_REGION = False` holds the starting sphere center fixed in the MPC
+demo. Set it to `True` to let the controller optimize the center as before.
+`SphericalRegion` still defaults to a moving center for existing offline OCPs.
+The fixed region matters for load sharing: moving the region can let the
+controller find a posture where both selected muscles recover together.
+
+`COST_OPTIONS` in `main_mpc.py` controls the stage objective:
+
+```text
+w_fatigue      * sum(fatigue**2)
++ w_fatigue_rate * sum(max(fatigue_derivative, 0)**2)
++ w_overlap     * sum(load[i] * load[j] for each selected muscle pair)
++ sum(w_control * control**2)
+```
+
+The MPC starts with weights `1.0`, `0.1`, `1.0`, and `1e-5`, respectively.
+Set any weight to zero to disable that term. `muscle_pairs` contains names from
+`MUSCLES`; update it when changing the selected muscles. The demo penalizes overlap
+for TeresMajor/Infraspinatus_S, selected by screening both dataset resolutions
+for two reachable postures with opposing loading patterns under the new cost.
+Pair selection is explicit;
+physical proximity is not used to define pairs.
+
+`load` is nonnegative muscle force divided by maximum isometric force. For the
+thresholded model it is also multiplied by the dynamics' loading indicator,
+including its configured smooth transition. The rate penalty only uses positive
+derivatives of the fatigued fractions: recovery and the 3CC active-compartment
+derivative do not incur that penalty. The control penalty applies to acceleration
+in the matched-plant demo. The prediction also retains the existing final-node
+fatigue penalty, with weight `dt * w_fatigue`.
+
+The same objective supports offline OCPs via `solve_ocp(..., cost_options=...)`
+or `MusculoskeletalOCP.from_model(..., cost_options=...)`. Without cost options,
+offline runs retain the original fatigue-only objective. The added costs favor
+resting one muscle while another works, but do not prescribe a switching cycle.
+
+The selected pair has dataset postures loading TeresMajor/Infraspinatus_S at
+approximately 30%/8% and 0.5%/13% of maximum force. A sampled straight joint-space
+connection stays inside the fixed 10 cm sphere. A twelve-second thresholded MPC
+screening showed repeated exchanges between the loading patterns; this is a
+simulation observation, not a prescribed two-point reference. The endpoint and
+joint angles remain free inside the region. Dataset rankings, positions, and
+simulation traces are saved under
+`results/tsm_3DOF/mpc/position_pair_selection/`.
 
 `STEPS_PER_UPDATE` sets the number of prediction intervals between feedback
 updates. The returned acceleration is held for that entire interval, and the
@@ -100,8 +143,11 @@ actuator dynamics or noisy measurements. Optional `DISTURBANCE_TIME` and
 
 Executed trajectories are saved as `OCPResult` archives under
 `results/<model>/mpc/results/`. Companion timing archives contain each solve time
-and the feedback interval. The executed objective integrates the fatigue cost
-on the executed states; it is not the sum of overlapping prediction objectives.
+and the feedback interval, plus cost weights, selected pairs, and integrated cost
+components (`cost_names` and `cost_values`). The executed objective integrates all
+four stage costs on the executed states and applied controls, using the feedback
+interval. It does not include a terminal penalty or sum overlapping prediction
+objectives. The cost components are also printed when the run finishes.
 `val_states` is empty because no independent validation trajectory is generated.
 The script runs as a simulation without enforcing wall-clock deadlines. Compare
 solve times with the feedback interval before attempting real-time use; a failed

@@ -34,7 +34,7 @@ class Fatigue:
 
 
 class MPCTests(unittest.TestCase):
-    def make_ocp(self, fatigue_model=None):
+    def make_ocp(self, fatigue_model=None, cost_options=None, *, moving_task=True):
         q = ca.MX.sym("q", 1)
         kinematics = SimpleNamespace(
             endpoint_function=ca.Function("endpoint", [q], [ca.vertcat(q, 0, 0)]),
@@ -43,16 +43,30 @@ class MPCTests(unittest.TestCase):
         joints = JointStates(("q",), np.zeros(1), np.array([[-2., 2.]]),
                              np.zeros(1), np.zeros(1))
         conf = OCPconfig(6, 0.05, np.ones(1), np.ones(1), 1., 1.)
+        for name, value in (cost_options or {}).items():
+            setattr(conf, name, value)
         conf.s_opts = dict(conf.s_opts, print_level=0)
         return MusculoskeletalOCP(
             kinematics, SecondOrderIntegrator(1), None, Fatigue() if fatigue_model is None else fatigue_model,
-            SphericalRegion(np.zeros(3), 0.5), joints, conf,
+            SphericalRegion(np.zeros(3), 0.5, moving=moving_task), joints, conf,
         )
 
     def test_plant_constant_acceleration(self):
         plant = JointPlant([1.], [2.])
         np.testing.assert_allclose(plant.step([3.], 0.2), [1.46])
         np.testing.assert_allclose(plant.velocities, [2.6])
+
+    def test_fixed_task_center_stays_fixed_when_motion_is_rewarded(self):
+        for moving in (False, True):
+            with self.subTest(moving=moving):
+                ocp = self.make_ocp(moving_task=moving)
+                ocp.opti.minimize(ocp.opti.f - ocp.task_params[0, -1])
+                ocp.solve(diagnostics=False, validate=False)
+                if moving:
+                    self.assertGreater(ocp.task_parameters_solution[0, -1], 0.01)
+                else:
+                    np.testing.assert_allclose(ocp.task_parameters_solution, 0., atol=1e-7)
+                    np.testing.assert_allclose(ocp.task_param_rates_solution, 0., atol=1e-7)
 
     def test_feedback_velocity_and_fatigue(self):
         controller = MusculoskeletalMPC(self.make_ocp(), np.array([0., 0.4, 0.2]))
@@ -189,6 +203,102 @@ class MPCTests(unittest.TestCase):
             self.assertTrue((output / f"{result.tag}.npz").exists())
             self.assertTrue((output / f"{result.tag}_timing.npz").exists())
         self.assertEqual(signal.getsignal(signal.SIGINT), previous_handler)
+
+    def make_two_muscle_model(self, model_type):
+        demand = np.linspace(0., 3., 4)
+        dataset = MSKdataset(
+            SimpleNamespace(joint_coordinate_names=("q",)),
+            SimpleNamespace(joint_coordinates=np.linspace(-2., 2., 4)[:, None],
+                            forces=np.zeros((1, 3))),
+            SimpleNamespace(sample_success=np.ones((4, 1), dtype=bool),
+                            sample_muscle_forces=np.column_stack((demand, demand[::-1]))[:, None, :]),
+        )
+        muscles = MuscleInfo(("a", "b"), np.array([0, 1]), np.array([10., 10.]))
+        options = {"transition_width": 0.01} if model_type is Thresholded else {}
+        return model_type(dataset, muscles, **options)
+
+    def test_overlap_prefers_offloading_one_muscle(self):
+        for model_type in (Thresholded, ThreeCompartment):
+            with self.subTest(model=model_type.__name__):
+                model = self.make_two_muscle_model(model_type)
+                ocp = self.make_ocp(model, {"w_overlap": 1., "muscle_pairs": (("a", "b"),)})
+                mixed = np.zeros(2 + model.n_states)
+                offloaded = mixed.copy()
+                offloaded[0] = 1.5
+                index = ocp.cost_names.index("overlap")
+                mixed_cost = float(ocp.stage_cost(mixed, [0.])[index])
+                offloaded_cost = float(ocp.stage_cost(offloaded, [0.])[index])
+                self.assertGreater(mixed_cost, offloaded_cost)
+                self.assertGreaterEqual(offloaded_cost, 0.)
+
+    def test_recovery_and_recruitment_are_not_positive_fatigue_rates(self):
+        for model_type in (Thresholded, ThreeCompartment):
+            with self.subTest(model=model_type.__name__):
+                model = self.make_two_muscle_model(model_type)
+                ocp = self.make_ocp(model, {"w_fatigue_rate": 1.})
+                if model_type is Thresholded:
+                    # First muscle is saturated and the unloaded second muscle recovers.
+                    state = np.array([2., 0., 1., 0.2])
+                else:
+                    # Both fatigued fractions recover while active fractions are recruited.
+                    state = np.array([0., 0., 0.2, 0.2, 0., 0.])
+                    derivative = np.asarray(model.derivative([0.], state[2:])).ravel()
+                    self.assertTrue((derivative[2:] > 0).all())
+                rate_cost = float(ocp.stage_cost(state, [0.])[ocp.cost_names.index("fatigue_rate")])
+                self.assertAlmostEqual(rate_cost, 0., places=12)
+                # A fresh loaded muscle does incur positive fatigue-rate cost.
+                if model_type is Thresholded:
+                    state[2] = 0.2
+                else:
+                    state[2:4] = 0.
+                    state[4:] = 0.2
+                self.assertGreater(float(ocp.stage_cost(state, [0.])[1]), 0.)
+
+    def test_negative_interpolated_force_cannot_reward_overlap(self):
+        model = self.make_two_muscle_model(ThreeCompartment)
+        model.force_interpolant = lambda q: ca.DM([-1., 2.])
+        ocp = self.make_ocp(model, {"w_overlap": 1., "muscle_pairs": (("a", "b"),)})
+        self.assertEqual(float(ocp.stage_cost(np.zeros(6), [0.])[2]), 0.)
+
+    def test_objective_components_match_solver_for_both_models(self):
+        for model_type in (Thresholded, ThreeCompartment):
+            with self.subTest(model=model_type.__name__):
+                model = self.make_two_muscle_model(model_type)
+                ocp = self.make_ocp(model, {
+                    "w_fatigue": 1., "w_fatigue_rate": 0.1, "w_overlap": 1.,
+                    "w_control": 1e-3, "muscle_pairs": (("a", "b"),),
+                })
+                result = ocp.solve(diagnostics=False, validate=False)
+                terms = ocp.evaluate_objective(result.states, result.controls)
+                self.assertAlmostEqual(sum(terms.values()), result.objective, places=10)
+                self.assertTrue(all(value >= -1e-12 for value in terms.values()))
+                running = ocp.evaluate_objective(result.states, result.controls, include_terminal=False)
+                longer = ocp.evaluate_objective(result.states, result.controls,
+                                               include_terminal=False, timestep=2 * ocp.conf.dt)
+                np.testing.assert_allclose(list(longer.values()), 2 * np.array(list(running.values())))
+
+    def test_fatigue_only_cost_preserves_original_objective(self):
+        ocp = self.make_ocp(cost_options={"w_fatigue": 0.1, "w_control": 0.})
+        result = ocp.solve(diagnostics=False, validate=False)
+        expected = 0.1 * ocp.conf.dt * np.sum(result.states[2:]**2)
+        self.assertAlmostEqual(result.objective, expected, places=12)
+
+    def test_swapping_fatigue_changes_the_preferred_loading_direction(self):
+        for model_type in (Thresholded, ThreeCompartment):
+            with self.subTest(model=model_type.__name__):
+                model = self.make_two_muscle_model(model_type)
+                ocp = self.make_ocp(model, {
+                    "w_fatigue": 1., "w_fatigue_rate": 0.1, "w_overlap": 1.,
+                    "w_control": 1e-3, "muscle_pairs": (("a", "b"),),
+                })
+                first = np.concatenate(([0., 0.], [0.5, 0.1],
+                                        [0.15, 0.15] if model_type is ThreeCompartment else []))
+                second = first.copy()
+                second[2:4] = first[2:4][::-1]
+                result_a = ocp.solve(first, diagnostics=False, validate=False)
+                result_b = ocp.solve(second, diagnostics=False, validate=False)
+                self.assertLess(result_a.controls[0, 0], 0.)
+                self.assertGreater(result_b.controls[0, 0], 0.)
 
 
 if __name__ == "__main__":
