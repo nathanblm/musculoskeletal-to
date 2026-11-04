@@ -13,6 +13,13 @@ from .msk_data import ModelInfo, OCPResult, MSKdataset, MODEL_CONFIG
 from .tasks import *
 from .msk_data import JointStates, MuscleInfo
 
+def rk4_step(derivative, state, dt):
+    k1 = derivative(state)
+    k2 = derivative(state + dt * k1 / 2)
+    k3 = derivative(state + dt * k2 / 2)
+    k4 = derivative(state + dt * k3)
+    return state + dt * (k1 + 2*k2 + 2*k3 + k4) / 6
+
 @dataclass
 class OCPconfig:
     N: int
@@ -189,12 +196,8 @@ class MusculoskeletalOCP:
                 self.f_dynamics(ca.vertcat(state[:n], uk)),
                 self.fatigue_model.derivative(state[position_indices], state[n:]),
             )
-            k1 = f(xk)
-            k2 = f(xk + dt * k1 / 2)
-            k3 = f(xk + dt * k2 / 2)
-            k4 = f(xk + dt * k3)
             self.opti.subject_to(
-                self.X[:, k + 1] == xk + dt * (k1 + 2*k2 + 2*k3 + k4) / 6
+                self.X[:, k + 1] == rk4_step(f, xk, dt)
             )
 
         self.opti.minimize(cost)
@@ -246,28 +249,18 @@ class MusculoskeletalOCP:
         return self.ocp_result
 
     def set_initial_trajectory(self, trajectory=None):
-
         if trajectory is not None:
             pass
 
-        path_start = np.asanyarray(
-            self.task.evaluate(self.task.initial_parameters)
-        ).reshape((3,))
-        positions, _ = self.kinematics.inverse_kinematics(path_start)                           # shape (n_coordinates,)
-        velocities = np.zeros_like(positions)                                                   # shape (n_coordinates,)
-        accelerations = np.zeros_like(positions)                                                # shape (n_coordinates,)
-        muscle_state = self.fatigue_model.initial_state()
-        joint_state = np.column_stack((positions, velocities)).ravel()                          # shape (2*n_coordinates,)
-        torques = self.i_dynamics(
-            np.concatenate((joint_state, accelerations)))[:len(positions)]                      # shape (n_coordinates,)
-
-        init_state = np.concatenate((joint_state, muscle_state))                                # shape (2*n_coordinates + n_muscles,)
+        from tasks import initial_state_from_task
+        init_state, joint_state, acc = initial_state_from_task(self.task, self.kinematics, self.fatigue_model)
         init_state_trajectory = np.tile(init_state.reshape(-1, 1), (1, self.conf.N))            # shape (2*n_coordinates + n_muscles, N)
+        torques = self.i_dynamics(
+            np.concatenate((joint_state, acc)))[:len(joint_state)]                      # shape (n_coordinates,)
         init_control_trajectory = np.tile(
             np.asarray(torques).reshape(-1, 1),
             (1, self.conf.N - 1)
         )                                                                                       # shape (n_coordinates, N-1)
-
         self.opti.set_initial(self.X, init_state_trajectory)
         self.opti.set_initial(self.U, init_control_trajectory)
         self.opti.set_initial(

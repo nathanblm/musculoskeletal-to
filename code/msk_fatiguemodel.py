@@ -107,6 +107,11 @@ class FatigueModel(ABC):
     def _numerical_derivative(self, state, rates, forces):
         """Derivative at sampled rates and forces for trajectory validation."""
 
+    def derivative_from_forces(self, state, forces):
+        """Evaluate fatigue dynamics directly from selected muscle forces."""
+        forces = np.asarray(forces)
+        return self._numerical_derivative(state, self.rates_from_forces(forces), forces)
+
     def _nearest_neighbor_batch(self, q: np.ndarray):                                           # shape (N, n_coordinates)
         qs = self.dataset.samples.joint_coordinates[self.valid_indices]
         nn_indices = self.valid_indices[np.array([

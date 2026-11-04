@@ -10,6 +10,24 @@ def _y_rotation(theta):
         ca.horzcat(-ca.sin(theta), 0.0, ca.cos(theta)),
     )
 
+def initial_state_from_task(task, kinematics, fatigue_model):
+    path_start = np.asarray(
+        task.evaluate(task.initial_parameters), dtype=float
+    ).reshape(3)
+
+    positions, _ = kinematics.inverse_kinematics(path_start)
+    velocities = np.zeros_like(positions)
+    accelerations = np.zeros_like(positions)
+
+    joint_state = np.column_stack((
+        positions,
+        velocities,
+    )).ravel()
+
+    state = np.concatenate((joint_state, fatigue_model.initial_state))
+
+    # TODO: fatigue model initial state remains hardcoded to 0
+    return state, joint_state, accelerations
 
 class Task(ABC):
     @property
