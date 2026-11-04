@@ -17,7 +17,7 @@ def main():
     model = osim.Model(config["model_path"])
     muscles = ["DeltoideusScapula_M", "Supraspinatus_A"]
     horizon = 25
-    timestep = 0.01
+    timestep = 0.05
     steps_per_update = 1
     fatigue_model = "thresholded"  # "thresholded" or "3cc"
 

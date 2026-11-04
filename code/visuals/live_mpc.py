@@ -1,14 +1,15 @@
-"""Live Simbody plant posture and MPC endpoint predictions."""
+"""Live Simbody motion and Matplotlib fatigue history with MPC predictions."""
 
 from collections import deque
 
 import numpy as np
 
 from .simbody_renderer import SimbodyRenderer
+from .live_fatigue import LiveFatiguePlot
 
 
 class LiveMPCVisualizer(SimbodyRenderer):
-    def __init__(self, model, controller, *, history_seconds=20.0):
+    def __init__(self, model, controller, *, history_seconds=20.0, show_fatigue=True):
         super().__init__(model)
         self.controller = controller
         self.coordinates = [
@@ -20,6 +21,8 @@ class LiveMPCVisualizer(SimbodyRenderer):
         )
         self.prediction_line_ids = []
         self.prediction_marker_ids = []
+        self.fatigue_plot = LiveFatiguePlot(controller.plant.fatigue_model) if show_fatigue else None
+        self.fatigue_history = deque(maxlen=self.endpoint_trail.maxlen)
 
     def update(self):
         controller = self.controller
@@ -51,5 +54,25 @@ class LiveMPCVisualizer(SimbodyRenderer):
             trajectory=np.asarray(self.endpoint_trail), reference=reference,
         )
 
+        if self.fatigue_plot is not None:
+            n = plant.joint_states.size
+            self.fatigue_history.append((plant.time, plant.state[n:].copy()))
+            time, states = zip(*self.fatigue_history)
+            if result is None:
+                prediction_time = np.array([plant.time])
+                predicted_states = plant.state[n:, None]
+            else:
+                # The prediction starts before the controls just applied to the plant.
+                prediction_start = plant.time - controller._executed_steps * controller.ocp.conf.dt
+                prediction_time = prediction_start + result.time
+                predicted_states = result.states[n:]
+            self.fatigue_plot.update(
+                np.asarray(time), np.column_stack(states), prediction_time, predicted_states,
+            )
+
     def close(self):
-        self.visualizer.shutdown()
+        try:
+            self.visualizer.shutdown()
+        finally:
+            if self.fatigue_plot is not None:
+                self.fatigue_plot.close()

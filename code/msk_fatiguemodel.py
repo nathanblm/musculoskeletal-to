@@ -174,20 +174,19 @@ class Thresholded(FatigueModel):
     def derivative(self, q: ca.MX, fatigue: ca.MX) -> ca.MX:
         rates = self.rate_interpolant(q)
         forces = self.force_interpolant(q)
-        active = forces >= self.params.threshold
-
-        return ca.if_else(
-            active,
-            (1 - fatigue) * rates,
-            -fatigue * (self.params.recovery / self.params.capacity),
-        )
+        # Smooth the threshold over 1% of maximum muscle force.
+        active = 0.5 * (1 + ca.tanh(
+            (forces - self.params.threshold) / (0.01 * self.muscles.max_forces)
+        ))
+        return (active * (1 - fatigue) * rates
+                - (1 - active) * fatigue * (self.params.recovery / self.params.capacity))
 
     def _numerical_derivative(self, state, rates, forces):
-        return np.where(
-            forces >= self.params.threshold,
-            (1 - state) * rates,
-            -state * (self.params.recovery / self.params.capacity),
-        )
+        active = 0.5 * (1 + np.tanh(
+            (forces - self.params.threshold) / (0.01 * self.muscles.max_forces)
+        ))
+        return (active * (1 - state) * rates
+                - (1 - active) * state * (self.params.recovery / self.params.capacity))
 
 
 class ThreeCompartment(FatigueModel):
