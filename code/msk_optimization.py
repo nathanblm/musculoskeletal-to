@@ -172,6 +172,8 @@ class MusculoskeletalOCP:
         terminal_endpoint = endpoint_FK(self.X[position_indices, -1])
         self.task.add_boundary_constraints(
             self.opti, self.task_params, self.task_param_rates,
+            initial_parameters=self.task_initial,
+            initial_rates=self.task_rate_initial,
             endpoint=terminal_endpoint,
         )
 

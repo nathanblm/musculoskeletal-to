@@ -55,17 +55,22 @@ class Task(ABC):
         """ return the cartesian position on path for given input parameters """
         raise NotImplementedError
 
-    def add_boundary_constraints(self, opti, parameters, rates, **kwargs):
+    def add_boundary_constraints(self, opti, parameters, rates, *,
+                                 initial_parameters=None, initial_rates=None, **kwargs):
+        if initial_parameters is None:
+            initial_parameters = self.initial_parameters
+        if initial_rates is None:
+            initial_rates = self.initial_rates
 
         # position limits
         lower, upper = np.asarray(self.parameter_bounds).T
         opti.subject_to(opti.bounded(lower, parameters, upper))
-        opti.subject_to(parameters[:, 0] == self.initial_parameters)
+        opti.subject_to(parameters[:, 0] == initial_parameters)
 
         # velocity limits
         lower, upper = np.asarray(self.rate_bounds).T
         opti.subject_to(opti.bounded(lower, rates, upper))
-        opti.subject_to(rates[:, 0] == self.initial_rates)
+        opti.subject_to(rates[:, 0] == initial_rates)
 
         self._additional_boundary_constraints(opti, parameters, rates, **kwargs)
 
