@@ -12,4 +12,4 @@ class JointPlant:
         acceleration = np.asarray(acceleration)
         self.positions += dt * self.velocities + 0.5 * dt**2 * acceleration
         self.velocities += dt * acceleration
-        return self.positions.copy()
+        return self.positions.copy(), self.velocities.copy()

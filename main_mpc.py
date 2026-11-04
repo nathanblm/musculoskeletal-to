@@ -1,4 +1,4 @@
-"""Run position-feedback MPC with the dataset force condition held fixed."""
+"""Run position-and-velocity-feedback MPC with the dataset force condition held fixed."""
 
 import os
 import signal
@@ -13,6 +13,7 @@ from code.msk_fatiguemodel import ThreeCompartment, Thresholded
 from code.msk_mpc import MusculoskeletalMPC
 from code.msk_optimization import MusculoskeletalOCP
 from code.msk_plant import JointPlant
+from code.msk_rmr_feedback import RMRFatigueObserver
 from code.tasks import SphericalRegion
 from code.visuals.simbody_renderer import SimbodyRenderer
 from code.visuals.live_fatigue import LiveFatiguePlot
@@ -23,6 +24,7 @@ MODEL_NAME = "tsm_3DOF"
 FORCE_INDEX = 0
 HORIZON = 25
 TIMESTEP = 0.05
+RMR_TIMESTEP = 0.01  # Maximum interval for executed-motion force/fatigue updates.
 STEPS_PER_UPDATE = 1
 FATIGUE_MODEL = "3cc"  # "thresholded" or "3cc"
 THRESHOLD_TRANSITION_WIDTH = 0.01  # Fraction of maximum force; 0 uses the hard switch.
@@ -64,11 +66,21 @@ def main():
     controller = MusculoskeletalMPC(ocp, steps_per_update=STEPS_PER_UPDATE)
     plant = JointPlant(ocp.initial_state[:ocp.joint_states.size:2],
                        ocp.initial_state[1:ocp.joint_states.size:2])
+    # RMR modifies its model, so give it a separate OpenSim instance.
+    observer = RMRFatigueObserver.from_model(
+        osim.Model(config["model_path"]), ocp.fatigue_model,
+        controller.state[ocp.joint_states.size:],
+    )
+    if not np.isfinite(RMR_TIMESTEP) or RMR_TIMESTEP <= 0:
+        raise ValueError("RMR_TIMESTEP must be positive and finite")
     dt = controller.sample_time
+    rmr_substeps = max(1, int(np.ceil(dt / RMR_TIMESTEP)))
+    rmr_dt = dt / rmr_substeps
     n_steps = None if DURATION is None else round(DURATION / dt)
     display_steps = max(1, round(DISPLAY_HISTORY / dt))
     states, controls, task_points, solve_times = [], [], [], []
     positions = plant.positions.copy()
+    velocities = plant.velocities.copy()
     renderer = SimbodyRenderer(model) if SHOW_SIMBODY else None
     fatigue_plot = LiveFatiguePlot(ocp.fatigue_model) if SHOW_FATIGUE else None
     endpoint_trail = deque(maxlen=display_steps + 1)
@@ -92,7 +104,7 @@ def main():
             if DISTURBANCE_TIME is not None and k == round(DISTURBANCE_TIME / dt):
                 plant.positions += DISTURBANCE
                 positions = plant.positions.copy()
-            acceleration = controller.step(positions)
+            acceleration = controller.step(positions, velocities, observer.state)
             states.append(controller.state.copy())
             controls.append(acceleration)
             task_points.append(np.asarray(task.evaluate(
@@ -119,7 +131,9 @@ def main():
                     reference=controller.result.task.T,
                     prediction=controller.result.endpoint_positions.T,
                 )
-            positions = plant.step(acceleration, dt)
+            for _ in range(rmr_substeps):
+                observer.advance(positions, velocities, acceleration, rmr_dt)
+                positions, velocities = plant.step(acceleration, rmr_dt)
             k += 1
     finally:
         signal.signal(signal.SIGINT, previous_handler)
@@ -129,7 +143,7 @@ def main():
         print("Stopped before any control interval was executed.")
         return None
 
-    controller.update_state(positions)
+    controller.update_state(positions, velocities, observer.state)
     states.append(controller.state.copy())
     task_points.append(np.asarray(task.evaluate(controller.task_parameters)).ravel())
     states = np.column_stack(states)
@@ -164,7 +178,7 @@ def main():
     output = ROOT / "results" / MODEL_NAME / "mpc" / "results" / f"{result.tag}.npz"
     result.save_npz(output)
     np.savez_compressed(output.with_name(f"{result.tag}_timing.npz"),
-                        solve_times=solve_times, sample_time=dt,
+                        solve_times=solve_times, sample_time=dt, rmr_timestep=rmr_dt,
                         fatigue_model=FATIGUE_MODEL,
                         threshold_transition_width=getattr(ocp.fatigue_model, "transition_width", 0.0))
     print(f"Saved executed trajectory: {output}")

@@ -21,7 +21,7 @@ Configure the demo at the top of [main.py](main.py):
 
 Increase `N_SAMPLES` for a denser map. Model files and generated dynamics must be available at the paths configured in the pipeline modules.
 
-## Position-feedback MPC
+## Position and velocity feedback MPC
 
 Run the matched-plant experiment in the same environment as the OCP demo:
 
@@ -78,11 +78,22 @@ the current prediction's start time, with orange markers at the predicted start
 and end and an update counter in the caption.
 
 The plant is an acceleration-controlled double integrator, matching the current
-OCP demo. Only joint positions are fed back. The controller estimates velocity
-from successive positions and the applied acceleration, and integrates fatigue
-along the measured posture history. Muscle forces come from the posture-dependent
-dataset map at a fixed interaction-force condition (`FORCE_INDEX`). Fatigue is a
-model estimate; it is not measured or corrected from muscle feedback.
+OCP demo. Joint positions and velocities are fed back directly from the plant.
+A persistent RMR solver estimates muscle forces from executed joint positions,
+velocities, applied accelerations, and the fixed interaction force (`FORCE_INDEX`).
+Activation dynamics are enabled; the solver retains its previous activation and
+timestamp between calls. No full history needs to be replayed. RK4 integrates the
+fatigue equations using these forces, bypassing the interpolation maps for feedback.
+The OCP still uses the maps for its predictions. Fatigue remains a model estimate;
+RMR does not currently reduce muscle strength according to estimated fatigue.
+
+`RMR_TIMESTEP` bounds the plant/feedback substep duration (default `0.01 s`). Each
+control hold is divided into equal substeps, with one sequential RMR solve using
+the start-of-substep kinematics. Estimated forces are held over that substep for
+fatigue integration. This still approximates force variation between samples.
+The controller accepts `(positions, velocities, muscle_state)` at each update.
+RMR uses a separate OpenSim model and the dataset's activation-squared objective.
+Failed RMR solves stop the run; there is no fallback to interpolated forces.
 
 `MusculoskeletalOCP` builds its constraints once and accepts a complete initial
 state on each `solve()`. Calling `solve()` without arguments still runs the
@@ -93,9 +104,10 @@ The sphere center remains a moving optimization variable, as in the OCP demo.
 
 `STEPS_PER_UPDATE` sets the number of prediction intervals between feedback
 updates. The returned acceleration is held for that entire interval, and the
-corresponding first prediction controls are constrained equal. The velocity
-estimate assumes this acceleration-controlled plant; revisit it when adding
-actuator dynamics or noisy measurements. Optional `DISTURBANCE_TIME` and
+corresponding first prediction controls are constrained equal. The plant returns
+`(positions, velocities)`; both are passed to the controller along with the
+RMR-driven muscle state on each update.
+Optional `DISTURBANCE_TIME` and
 `DISTURBANCE` settings introduce a joint-position jump to exercise feedback.
 
 Executed trajectories are saved as `OCPResult` archives under

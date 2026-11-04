@@ -1,4 +1,4 @@
-"""Position-feedback receding-horizon control using MusculoskeletalOCP."""
+"""Position-and-velocity-feedback receding-horizon control using MusculoskeletalOCP."""
 
 from time import perf_counter
 
@@ -13,12 +13,12 @@ class MusculoskeletalMPC:
         self.steps_per_update = steps_per_update
         self.sample_time = steps_per_update * ocp.conf.dt
         # The plant holds the returned acceleration for the full update interval.
+        # zero-order hold: improvement could instead execute the first m control outputs and then re-solve the OCP for the remaining horizon.
         for k in range(1, steps_per_update):
             ocp.opti.subject_to(ocp.U[:, k] == ocp.U[:, 0])
         self.state = np.array(ocp.initial_state if initial_state is None else initial_state,
                               dtype=float, copy=True)
         self.n_joint = ocp.joint_states.size
-        self.previous_positions = self.state[:self.n_joint:2].copy()
         self.previous_control = None
         self.task_parameters = ocp.task.initial_parameters.copy()
         self.task_rates = ocp.task.initial_rates.copy()
@@ -26,24 +26,11 @@ class MusculoskeletalMPC:
         self.solve_time = 0.0
         self.prediction_revision = float("nan")
 
-    def update_state(self, positions):
-        positions = np.asarray(positions)
-        if self.previous_control is not None:
-            dt = self.sample_time
-            # Endpoint velocity for the matched constant-acceleration plant.
-            velocity = ((positions - self.previous_positions) / dt
-                        + 0.5 * dt * self.previous_control)
-            derivative = self.ocp.fatigue_model.derivative
-            muscle_state = self.state[self.n_joint:]
-            midpoint = (self.previous_positions + positions) / 2
-            k1 = np.asarray(derivative(self.previous_positions, muscle_state)).ravel()
-            k2 = np.asarray(derivative(midpoint, muscle_state + dt * k1 / 2)).ravel()
-            k3 = np.asarray(derivative(midpoint, muscle_state + dt * k2 / 2)).ravel()
-            k4 = np.asarray(derivative(positions, muscle_state + dt * k3)).ravel()
-            self.state[self.n_joint:] = muscle_state + dt * (k1 + 2*k2 + 2*k3 + k4) / 6
-            self.state[1:self.n_joint:2] = velocity
+    def update_state(self, positions, velocities, muscle_state):
+        """Set feedback kinematics and the externally propagated fatigue state."""
         self.state[:self.n_joint:2] = positions
-        self.previous_positions = positions.copy()
+        self.state[1:self.n_joint:2] = velocities
+        self.state[self.n_joint:] = muscle_state
 
     def warm_start(self):
         shift = self.steps_per_update
@@ -61,8 +48,8 @@ class MusculoskeletalMPC:
         self.ocp.opti.set_initial(self.ocp.task_param_rates,
                                  shifted(self.ocp.task_param_rates_solution))
 
-    def step(self, positions):
-        self.update_state(positions)
+    def step(self, positions, velocities, muscle_state):
+        self.update_state(positions, velocities, muscle_state)
         previous_prediction = None
         if self.result is not None:
             previous_prediction = self.result.endpoint_positions[:, self.steps_per_update:].copy()
