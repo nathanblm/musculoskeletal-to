@@ -57,7 +57,7 @@ class MusculoskeletalMPC():
         initial_guess = self._initial_quess()
 
         start = perf_counter()
-        self.result = self.ocp.solve_mcp(
+        self.result = self.ocp.solve(
             initial_state=self.plant.state,
             task_parameters=self.task_parameters,
             task_rates=self.task_rates,
