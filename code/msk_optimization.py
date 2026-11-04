@@ -107,7 +107,12 @@ class MusculoskeletalOCP:
             len(self.task.initial_rates), self.conf.N - 1
         )
 
+        self.x_initial = self.opti.parameter(self.X.shape[0])
+        self.task_initial = self.opti.parameter(self.task_params.shape[0])
+        self.task_rate_initial = self.opti.parameter(self.task_param_rates.shape[0])
+
         self.set_initial_trajectory()
+        self.build_ocp()
 
     @classmethod
     def from_model(
@@ -134,6 +139,150 @@ class MusculoskeletalOCP:
         conf = OCPconfig.from_model(model, horizon, timestep)
 
         return cls(kinematics, f_dynamics, i_dynamics, fatigue_model, task, joint_states, conf)
+
+    def build_ocp(self):
+        endpoint_FK = self.kinematics.endpoint_function
+        n = self.joint_states.x.size
+        u = self.joint_states.torques.size
+        dt = self.conf.dt
+
+        position_indices = np.arange(0, n, 2)
+
+        # always use the "measured" state from the plant as the initial state for the OCP
+        self.opti.subject_to(self.X[:, 0] == self.x_initial)
+        self.opti.subject_to(self.opti.bounded(0, self.X[n:, :], 1))
+        if isinstance(self.fatigue_model, ThreeCompartment):
+            _, resting, _ = self.fatigue_model.split_state(self.X[n:, :])
+            self.opti.subject_to(ca.vec(resting) >= 0)
+
+                # joint limits
+        for i, row in enumerate(position_indices):
+            lower, upper = self.joint_states.angle_limits[i]
+            self.opti.subject_to(
+                self.opti.bounded(lower, self.X[row, :], upper)
+            )
+
+        # control limits
+        for i in range(u):
+            lower = -self.conf.control_lim[i]
+            upper = self.conf.control_lim[i]
+            self.opti.subject_to(self.opti.bounded(lower, self.U[i, :], upper))
+
+
+        terminal_endpoint = endpoint_FK(self.X[position_indices, -1])
+        self.task.add_boundary_constraints(
+            self.opti, self.task_params, self.task_param_rates,
+            endpoint=terminal_endpoint,
+        )
+
+        cost = 0
+        for k in range(self.conf.N):
+            cost += 0.1 * dt * ca.sumsqr(
+                self.fatigue_model.fatigue(self.X[n:, k])
+            )
+
+        # path constraints and dynamics
+        for k in range(self.conf.N - 1):
+            qk = self.X[position_indices, k]
+            endpoint = endpoint_FK(qk)
+
+            self.task.add_path_constraints(
+                self.opti, self.task_params, self.task_param_rates, k, dt,
+                endpoint=endpoint,
+            )
+
+            # Integrate joint and fatigue states together, evaluating muscle
+            # force at each RK4 substep posture.
+            xk = self.X[:, k]
+            uk = self.U[:, k]
+            f = lambda state: ca.vertcat(
+                self.f_dynamics(ca.vertcat(state[:n], uk)),
+                self.fatigue_model.derivative(state[position_indices], state[n:]),
+            )
+            self.opti.subject_to(
+                self.X[:, k + 1] == rk4_step(f, xk, dt)
+            )
+
+        self.opti.minimize(cost)
+        self.opti.solver("ipopt", self.conf.p_opts, self.conf.s_opts)
+
+    def solve_mcp(
+        self,
+        initial_state,
+        task_parameters,
+        task_rates,
+        initial_guess=None,
+        *, 
+        diagnostics=False,
+        validate=False,
+    ):
+        self.opti.set_value(self.x_initial, initial_state)
+        self.opti.set_value(self.task_initial, task_parameters)
+        self.opti.set_value(self.task_rate_initial, task_rates)
+
+        if initial_guess is not None:
+            for variable, name in (
+                (self.X, "states"),
+                (self.U, "controls"),
+                (self.task_params, "task_parameters"),
+                (self.task_param_rates, "task_rates"),
+            ):
+                self.opti.set_initial(variable, initial_guess[name])
+
+        solution = self.opti.solve()
+
+        n = self.joint_states.x.size
+        position_indices = np.arange(0, n, 2)
+        endpoint_FK = self.kinematics.endpoint_function
+        endpoint_positions = np.asarray(endpoint_FK(solution.value(self.X[position_indices, :])))
+        task_values = np.asarray(solution.value(self.task_params), dtype=float).reshape(
+            len(self.task.initial_parameters), self.conf.N)
+        task_rate_values = np.asarray(solution.value(self.task_param_rates), dtype=float).reshape(
+            len(self.task.initial_rates), self.conf.N - 1)
+        self.task_parameters_solution = task_values
+        self.task_param_rates_solution = task_rate_values
+        task_positions = np.column_stack([
+            np.asarray(self.task.evaluate(task_values[:, k]), dtype=float).reshape(3)
+            for k in range(self.conf.N)
+        ])
+    
+        self.ocp_result = OCPResult(
+            time=np.arange(self.conf.N) * self.conf.dt,
+            states=solution.value(self.X),
+            val_states=np.zeros_like(solution.value(self.X)),
+            pos_indices=position_indices,
+            controls=solution.value(self.U),
+            endpoint_positions=endpoint_positions,
+            task=task_positions,
+            objective=solution.value(self.opti.f),
+            muscle_names=self.fatigue_model.muscles.names,
+            fatigue_model=("3cc" if isinstance(self.fatigue_model, ThreeCompartment)
+                           else "thresholded" if isinstance(self.fatigue_model, Thresholded) else ""),
+        )
+
+        # forward simulation of muscle states using nearest neighbor evaluation of discrete rate and force maps
+        # for comparison with the interpolated fatigue dynamics used in the OCP
+        if validate:
+            self.ocp_result.val_states[:n, :] = self.ocp_result.states[:n, :]
+            self.ocp_result.val_states[n:, 0] = self.fatigue_model.initial_state()
+            self.ocp_result.val_states[n:, :] = self.fatigue_model.simulate_muscle_states(
+                self.ocp_result.states[position_indices, :].T,
+                self.ocp_result.val_states[n:, :],
+                dt=self.conf.dt,
+                N=self.conf.N,
+            )
+        else:
+            self.ocp_result.val_states = np.empty((0, 0))
+
+        if diagnostics:
+            from .msk_opti_debug import print_constraint_violations
+            print_constraint_violations(
+                self, self.ocp_result,
+                task_parameters=task_values,
+                task_param_rates=task_rate_values,
+            )
+
+        return self.ocp_result
 
     def solve(self):
         endpoint_FK = self.kinematics.endpoint_function
@@ -252,11 +401,11 @@ class MusculoskeletalOCP:
         if trajectory is not None:
             pass
 
-        from tasks import initial_state_from_task
+        from .tasks import initial_state_from_task
         init_state, joint_state, acc = initial_state_from_task(self.task, self.kinematics, self.fatigue_model)
         init_state_trajectory = np.tile(init_state.reshape(-1, 1), (1, self.conf.N))            # shape (2*n_coordinates + n_muscles, N)
         torques = self.i_dynamics(
-            np.concatenate((joint_state, acc)))[:len(joint_state)]                      # shape (n_coordinates,)
+            np.concatenate((joint_state, acc)))[:len(acc)]                      # shape (n_coordinates,)
         init_control_trajectory = np.tile(
             np.asarray(torques).reshape(-1, 1),
             (1, self.conf.N - 1)

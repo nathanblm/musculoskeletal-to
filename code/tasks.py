@@ -24,7 +24,7 @@ def initial_state_from_task(task, kinematics, fatigue_model):
         velocities,
     )).ravel()
 
-    state = np.concatenate((joint_state, fatigue_model.initial_state))
+    state = np.concatenate((joint_state, fatigue_model.initial_state()))
 
     # TODO: fatigue model initial state remains hardcoded to 0
     return state, joint_state, accelerations

@@ -1,12 +1,14 @@
 from abc import ABC, abstractmethod
 from typing import Union as U
 from pathlib import Path
-from kinematics import Kinematics
-from msk_data import MODEL_CONFIG, JointStates, MSKdataset, MuscleInfo, ModelInfo, RMRconfig
-from msk_fatiguemodel import ThreeCompartment, Thresholded
+from copy import deepcopy
+from .sk_kinematics import Kinematics
+from .msk_data import MODEL_CONFIG, JointStates, MSKdataset, MuscleInfo, ModelInfo, RMRconfig
+from .msk_fatiguemodel import ThreeCompartment, Thresholded
 import casadi as ca
-from msk_optimization import rk4_step
+from .msk_optimization import rk4_step
 from rmr_solver import RMRsolver, ActSquared
+import opensim as osim
 
 import numpy as np
 
@@ -49,7 +51,7 @@ class Plant(ABC):
 
         fatigue_model = model_types[fatigue_model_type](dataset, muscle_info)
 
-        from tasks import initial_state_from_task
+        from .tasks import initial_state_from_task
         kinematics = Kinematics(model)
 
         if task is not None:
@@ -60,14 +62,16 @@ class Plant(ABC):
             raise ValueError("Either task or initial_state must be provided")
 
         if f_dynamics is None:
-            from msk_optimization import SecondOrderIntegrator
+            from .msk_optimization import SecondOrderIntegrator
             f_dynamics = SecondOrderIntegrator(joint_states.size // 2)
         else:
             f_dynamics = ca.Function.load(str(f_dynamics))
 
         model_info = ModelInfo.from_model(model)
+        rmr_model = osim.Model(model)
+        rmr_model.finalizeFromProperties()
         rmr_solver = RMRsolver(
-            model=model,
+            model=rmr_model,
             visualize=False,
             constrainActDyn=True,
             prescribedForceIndex=model_info.prescribed_force_indices,

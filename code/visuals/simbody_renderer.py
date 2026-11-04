@@ -13,6 +13,7 @@ class SimbodyRenderer:
         import opensim as osim
         self.osim = osim
         self.model = osim.Model(str(model)) if isinstance(model, (str, Path)) else osim.Model(model)
+        self.model.finalizeFromProperties()
         self.model.setUseVisualizer(True)
         self.state = self.model.initSystem()
         self.model.realizePosition(self.state)
