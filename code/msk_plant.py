@@ -36,6 +36,7 @@ class Plant(ABC):
             muscles: list[str], 
             fatigue_model_type: str, 
             *, 
+            force_index: int = 0,
             task=None, 
             initial_state=None,
             f_dynamics: Path = None,
@@ -49,7 +50,9 @@ class Plant(ABC):
         if fatigue_model_type not in model_types:
             raise ValueError(f"Unknown fatigue model type: {fatigue_model_type}")
 
-        fatigue_model = model_types[fatigue_model_type](dataset, muscle_info)
+        fatigue_model = model_types[fatigue_model_type](
+            dataset, muscle_info, force_index=force_index
+        )
 
         from .tasks import initial_state_from_task
         kinematics = Kinematics(model)

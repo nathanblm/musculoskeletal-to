@@ -613,28 +613,33 @@ def overwrite_sample_dominance(model_name: str, dataset_npz_path: str, agonist: 
 
 if __name__ == "__main__":
 
-    model_name = "tsm_4DOF"
+    model_name = "tsm_3DOF"
 
-    overwrite_sample_dominance(
-       model_name,
-       dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-       agonist=["TeresMinor",],                                     # red 
-       antagonist=["Supraspinatus_P"],          # blue
-    )
-
-    dataset_demo(
-       model_name,
-       npz_path=MODEL_CONFIG[model_name]["dataset_path"],
-    )
-    
-    #build_msk_dataset(
-    #    model_name,
-    #    n_samples=10, 
-    #    magnitudes=[20.0],
-    #    directions=[[0.0, -1.0, 0.0]],
-    #    tag="left",
-    #    regular=True,
+    #overwrite_sample_dominance(
+    #   model_name,
+    #   dataset_npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    #   agonist=["TeresMinor",],                                     # red 
+    #   antagonist=["Supraspinatus_P"],          # blue
     #)
+#
+    #dataset_demo(
+    #   model_name,
+    #   npz_path=MODEL_CONFIG[model_name]["dataset_path"],
+    #)
+    
+    build_msk_dataset(
+        model_name,
+        n_samples=10, 
+        magnitudes=[20.0],
+        directions=[[0.0, -1.0, 0.0],
+                    [0.0, 1.0, 0.0],
+                    [1.0, 0.0, 0.0],
+                    [-1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0],
+                    [0.0, 0.0, -1.0]],
+        tag="left",
+        regular=True,
+    )
 
     #build_validation_dataset(
     #    model_name,

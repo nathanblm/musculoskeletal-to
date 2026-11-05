@@ -179,9 +179,12 @@ class MusculoskeletalOCP:
 
         cost = 0
         for k in range(self.conf.N):
-            cost += 0.1 * dt * ca.sumsqr(
-                self.fatigue_model.fatigue(self.X[n:, k])
+
+            # Task tracking cost
+            cost += 1000 * dt * self.task.tracking_cost(
+                endpoint_FK(self.X[position_indices, k]), self.task_params[:, k]
             )
+
 
         # path constraints and dynamics
         for k in range(self.conf.N - 1):
@@ -197,6 +200,7 @@ class MusculoskeletalOCP:
             # force at each RK4 substep posture.
             xk = self.X[:, k]
             uk = self.U[:, k]
+
             f = lambda state: ca.vertcat(
                 self.f_dynamics(ca.vertcat(state[:n], uk)),
                 self.fatigue_model.derivative(state[position_indices], state[n:]),
@@ -204,6 +208,15 @@ class MusculoskeletalOCP:
             self.opti.subject_to(
                 self.X[:, k + 1] == rk4_step(f, xk, dt)
             )
+
+            fatigue = self.X[n:, k]
+            w_fatigue = 10.0
+            w_acceleration = 1e-5
+
+            cost += dt * (
+                w_fatigue * ca.sumsqr(fatigue)
+                + w_acceleration * ca.sumsqr(uk)
+)
 
         self.opti.minimize(cost)
         self.opti.solver("ipopt", self.conf.p_opts, self.conf.s_opts)

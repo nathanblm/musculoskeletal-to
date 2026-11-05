@@ -3,7 +3,7 @@ import signal
 import numpy as np
 import opensim as osim
 from code.msk_data import MODEL_CONFIG
-from code.tasks import SphericalRegion
+from code.tasks import SphericalRegion, CircularPath2, CircularPath1
 from code.msk_optimization import MusculoskeletalOCP
 from code.msk_mcp import MusculoskeletalMPC
 from code.msk_plant import O2Integrator
@@ -15,20 +15,57 @@ def main():
     model_name = "tsm_3DOF"
     config = MODEL_CONFIG[model_name]
     model = osim.Model(config["model_path"])
-    muscles = ["DeltoideusScapula_M", "Supraspinatus_A"]
-    horizon = 25
+
+
+    muscles = [
+        # arm26 models
+        #"TRIlong",
+        #"TRImed",
+        #"TRIlat",
+        #"BIClong",
+        #"BICshort",
+        #"BRA",
+
+        # tsm models
+        #"DeltoideusScapula_M", 
+        "DeltoideusScapula_P",
+        #"Subscapularis_S",
+        "Subscapularis_I",
+        #"Supraspinatus_A", 
+        "Coracobrachialis", 
+        "DeltoideusClavicle_A",
+        #"DeltoideusScapula_P",
+        #"DeltoideusScapula_M",
+        #"PectoralisMajorClavicle_A",
+        #"PectoralisMajorThorax_M",
+        #"TeresMajor",
+        "Infraspinatus_I",
+        "Infraspinatus_S",
+        "BIC_brevis",
+        "TRIlong"
+    ]
+    horizon = 10
     timestep = 0.05
     steps_per_update = 1
     fatigue_model = "thresholded"  # "thresholded" or "3cc"
+    force_index = 0
 
     task = SphericalRegion(
         center=np.array([-0.22686198, 0.39980641, 0.28600239]),
         radius=0.1,
     )
 
+    #task = CircularPath2(
+    #    r1=0.3,
+    #    tz=0.2,
+    #    h=0.6,
+    #    r2=0.1,
+    #)
+
     ocp = MusculoskeletalOCP.from_model(
         model=model,
         dataset=config["dataset_path"],
+        force_index=force_index,
         muscles=muscles,
         fatigue_model_type={"thresholded": Thresholded, "3cc": ThreeCompartment}[fatigue_model],
         task=task,
@@ -41,6 +78,7 @@ def main():
     plant = O2Integrator.from_model(
         model=osim.Model(config["model_path"]),
         dataset=config["dataset_path"],
+        force_index=force_index,
         muscles=muscles,
         fatigue_model_type=fatigue_model,
         task=task,

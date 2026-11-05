@@ -88,6 +88,9 @@ class Task(ABC):
     def _additional_path_constraints(self, opti, parameters, rates, k, dt, **kwargs):
         pass
 
+    def tracking_cost(self, endpoint, parameters):
+        return 0
+
 
 class SphericalRegion(Task):
     """Optimize a moving sphere center while keeping the endpoint inside it."""
@@ -170,6 +173,10 @@ class CircularPath2(Task):
         return _y_rotation(parameters[0]).T @ p2_plane + p1_ground
 
 
+    def tracking_cost(self, endpoint, parameters):
+        return ca.sumsqr(endpoint - self.evaluate(parameters))
+
+
 class CircularPath1(Task):
     def __init__(self, r1, tz, theta, h, r2):
         self.r = r1
@@ -206,3 +213,6 @@ class CircularPath1(Task):
             self.r2 * ca.cos(parameters[0]),
         )
         return _y_rotation(self.theta).T @ p2_plane + p1_ground
+
+    def tracking_cost(self, endpoint, parameters):
+        return ca.sumsqr(endpoint - self.evaluate(parameters))

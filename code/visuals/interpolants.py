@@ -101,7 +101,7 @@ def show_interpolant_surface(interpolants, *, muscle=None, field="fatigue",
     data = (Interpolants.from_npz(interpolants)
             if isinstance(interpolants, (str, Path)) else interpolants)
     selected = range(len(data.muscle_names)) if muscle is None else (muscle,)
-    interpolant = data.interpolant(field)
+    interpolant = data.interpolant("fatigue_rate" if field == "fatigue" else field)
     plots = []
     for selected_muscle in selected:
         slice_data = _InterpolantSlice(

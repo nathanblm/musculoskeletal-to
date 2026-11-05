@@ -18,7 +18,7 @@ MODEL_CONFIG = {
     },
     "arm26_4DOF": {
         "model_path": "musculoskeletal_models/arm26_4DOF/arm26_4DOF.osim",
-        "dataset_path": "results/arm26_4DOF/datasets/msk_dataset_p1e5_m1_d1_fx-20_fy0_fz0.npz",
+        "dataset_path": "results/arm26_4DOF/datasets/msk_dataset_p1e4_m1_d1_left_regular.npz",
         "f_dynamics_func_path": "musculoskeletal_models/arm26_4DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/arm26_4DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/arm26_4DOF/ocp/results/test.npz",
@@ -29,7 +29,7 @@ MODEL_CONFIG = {
     },
     "tsm_4DOF": {
         "model_path": "musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim",
-        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e5_m1_d1_left_regular.npz",
+        "dataset_path": "results/tsm_4DOF/datasets/msk_dataset_p1e4_m1_d1_left_regular.npz",
         "f_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/tsm_4DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/tsm_4DOF/ocp/results/test.npz",
@@ -40,7 +40,7 @@ MODEL_CONFIG = {
     },
     "tsm_3DOF": {
         "model_path": "musculoskeletal_models/tsm_3DOF/tsm_3DOF.osim",
-        "dataset_path": "results/tsm_3DOF/datasets/msk_dataset_p6e3_m1_d1_left_regular.npz",
+        "dataset_path": "results/tsm_3DOF/datasets/msk_dataset_p1e3_m1_d6_left_regular.npz",
         "f_dynamics_func_path": "musculoskeletal_models/tsm_3DOF/fd_dynamics/F.casadi",
         "i_dynamics_func_path": "musculoskeletal_models/tsm_3DOF/inv_dynamics/F.so",
         "ocp_result_path": "results/tsm_3DOF/ocp/results/test.npz",
@@ -202,7 +202,7 @@ class ThresholdedParams:
     threshold: np.ndarray                           # (n_muscles,)
 
     @classmethod
-    def from_max_forces(cls, max_forces, *, T=10.0, th_frac=0.1, R=300.0):
+    def from_max_forces(cls, max_forces, *, T=2.0, th_frac=0.1, R=300.0):
         # based on formula from https://doi.org/10.1016/j.rcim.2019.01.013
         max_forces = np.asarray(max_forces, dtype=float)
         capacity = - (T * max_forces) / np.log(1 - 0.993)
