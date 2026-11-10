@@ -181,7 +181,7 @@ class MusculoskeletalOCP:
         for k in range(self.conf.N):
 
             # Task tracking cost
-            cost += 1000 * dt * self.task.tracking_cost(
+            cost += 0 * dt * self.task.tracking_cost(
                 endpoint_FK(self.X[position_indices, k]), self.task_params[:, k]
             )
 

@@ -127,3 +127,32 @@ class O2Integrator(Plant):
         self.x = rk4_step(f, self.x, dt)
         self.time += dt
         return self.state
+
+
+class Skeletal(O2Integrator):
+    @classmethod
+    def from_model(
+            cls,
+            model,
+            dataset: Path,
+            muscles: list[str],
+            fatigue_model_type: str,
+            *,
+            f_dynamics: Path,
+            force_index: int = 0,
+            task=None,
+            initial_state=None,
+        ):
+        if f_dynamics is None:
+            raise ValueError("Skeletal requires a saved CasADi dynamics file")
+
+        return super().from_model(
+            model=model,
+            dataset=dataset,
+            muscles=muscles,
+            fatigue_model_type=fatigue_model_type,
+            f_dynamics=f_dynamics,
+            force_index=force_index,
+            task=task,
+            initial_state=initial_state,
+        )

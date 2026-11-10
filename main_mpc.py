@@ -6,7 +6,7 @@ from code.msk_data import MODEL_CONFIG
 from code.tasks import SphericalRegion, CircularPath2, CircularPath1
 from code.msk_optimization import MusculoskeletalOCP
 from code.msk_mcp import MusculoskeletalMPC
-from code.msk_plant import O2Integrator
+from code.msk_plant import O2Integrator, Skeletal
 from code.msk_fatiguemodel import ThreeCompartment, Thresholded
 from code.visuals.live_mpc import LiveMPCVisualizer
 
@@ -27,24 +27,24 @@ def main():
         #"BRA",
 
         # tsm models
-        #"DeltoideusScapula_M", 
-        "DeltoideusScapula_P",
-        #"Subscapularis_S",
-        "Subscapularis_I",
-        #"Supraspinatus_A", 
-        "Coracobrachialis", 
-        "DeltoideusClavicle_A",
+        "DeltoideusScapula_M", 
         #"DeltoideusScapula_P",
-        #"DeltoideusScapula_M",
-        #"PectoralisMajorClavicle_A",
-        #"PectoralisMajorThorax_M",
-        #"TeresMajor",
-        "Infraspinatus_I",
-        "Infraspinatus_S",
-        "BIC_brevis",
-        "TRIlong"
+        #"Subscapularis_S",
+        #"Subscapularis_I",
+        "Supraspinatus_A", 
+        #"Coracobrachialis", 
+        #"DeltoideusClavicle_A",
+        ##"DeltoideusScapula_P",
+        ##"DeltoideusScapula_M",
+        ##"PectoralisMajorClavicle_A",
+        ##"PectoralisMajorThorax_M",
+        ##"TeresMajor",
+        #"Infraspinatus_I",
+        #"Infraspinatus_S",
+        #"BIC_brevis",
+        #"TRIlong"
     ]
-    horizon = 10
+    horizon = 25
     timestep = 0.05
     steps_per_update = 1
     fatigue_model = "thresholded"  # "thresholded" or "3cc"
