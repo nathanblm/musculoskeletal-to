@@ -4,3 +4,7 @@ tests/
 
 /results/*
 
+install/
+log/
+build/
+.venvs/
