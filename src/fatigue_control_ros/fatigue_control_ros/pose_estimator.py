@@ -8,10 +8,9 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from arm_joint_state import CAMERA_TO_OPENSIM
-from arm_marker_ik import OpenSimArmMarkerIK
+from arm_joint_state import CAMERA_TO_OPENSIM, OpenSimArmJointState
 from mmpose_pipeline import (
-    H36M_JOINTS, MMPosePipeline, default_model_settings,
+    WHOLEBODY_JOINTS, MMPosePipeline, default_model_settings,
 )
 
 class PoseEstimator(Node):
@@ -29,7 +28,7 @@ class PoseEstimator(Node):
             self.declare_parameter(name, value)
         settings = {name: self.get_parameter(name).value for name in defaults}
         self.get_logger().info(
-            f"Loading RTMDet, RTMPose and MotionBERT on {settings['device']}")
+            f"Loading RTMDet and RTMW3D whole-body pose on {settings['device']}")
         
         self.pipeline = MMPosePipeline(settings)
         self.bridge = CvBridge()
@@ -40,7 +39,7 @@ class PoseEstimator(Node):
         rotation = self.get_parameter('camera_to_model_rotation').value
         if len(rotation) != 9:
             raise ValueError('camera_to_model_rotation must contain 9 values')
-        self.arm_state = OpenSimArmMarkerIK(
+        self.arm_state = OpenSimArmJointState(
             model_path, alignment=[rotation[i:i + 3] for i in range(0, 9, 3)],
             depth_sign=self.get_parameter('pose_depth_sign').value)
 
@@ -97,7 +96,7 @@ class PoseEstimator(Node):
                 if not frame.people:
                     reason = 'no people detected'
                 else:
-                    reason = 'current person has invalid landmarks'
+                    reason = 'IK did not converge for the current landmarks'
                 self.get_logger().warning(
                     f'No joint state published: {reason}')
         output = self.bridge.cv2_to_imgmsg(frame.overlay, encoding='bgr8')
@@ -108,8 +107,9 @@ class PoseEstimator(Node):
         payload = {
             'stamp': {'sec': header.stamp.sec, 'nanosec': header.stamp.nanosec},
             'image_frame_id': header.frame_id,
-            'joints_2d': 'COCO-17', 'joints_3d': H36M_JOINTS,
-            'units_3d': 'm', 'coordinates_3d': 'motionbert_pelvis_relative',
+            'schema': 'COCO-WholeBody-133',
+            'joints_2d': WHOLEBODY_JOINTS, 'joints_3d': WHOLEBODY_JOINTS,
+            'units_3d': 'm', 'coordinates_3d': 'rtmw3d_camera_pelvis_relative',
             'people': people,
         }
         self.pose_pub.publish(String(data=json.dumps(payload, allow_nan=False)))

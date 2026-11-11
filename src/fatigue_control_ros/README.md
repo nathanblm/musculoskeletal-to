@@ -36,7 +36,7 @@ ros2 topic hz /camera/image_raw
 ```
 
 To start the webcam, pose estimator and Simbody model viewer together, with the
-`tsm_3DOF` OpenSim model as the default:
+scaled `tsm_hand_3DOF` OpenSim model as the default:
 
 ```bash
 ros2 launch fatigue_control_ros pose_estimator.launch.xml
@@ -46,7 +46,7 @@ The model path can be overridden for another model:
 
 ```bash
 ros2 launch fatigue_control_ros pose_estimator.launch.xml \
-  model_path:=musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim
+  model_path:=musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim
 ```
 
 The `model_viewer` node uses the same `model_path` and listens to
@@ -64,16 +64,16 @@ To run only the viewer:
 
 ```bash
 ros2 run fatigue_control_ros model_viewer --ros-args \
-  -p model_path:=/absolute/path/to/tsm_3DOF.osim
+  -p model_path:=/absolute/path/to/tsm_3DOF_arm26_hand_scaled.osim
 ```
 
 Override its input using `-p joint_states_topic:=/another/joint_states`.
 
-## RTMPose 2D and MotionBERT 3D
+## RTMW3D whole-body pose
 
 The ROS adapter in `fatigue_control_ros/pose_estimator.py` handles parameters,
 image messages and publishing. The core in `../../code/mmpose_pipeline.py`
-loads models, tracks people, lifts poses and renders overlays without ROS imports.
+loads models, tracks people and renders whole-body overlays without ROS imports.
 `MMPosePipeline.process(image, timestamp_ns)` accepts a BGR NumPy image and
 returns a `PoseFrame` with pose dictionaries and an annotated BGR image.
 Use one pipeline per camera stream and call it sequentially.
@@ -96,13 +96,18 @@ terminals only need to source ROS and `install/setup.bash` before using
 `ros2 run`. Building with the explicit Python interpreter ensures the ROS
 executable uses the environment containing the model dependencies.
 
-This explicitly uses RTMDet-M person detection, RTMPose-M (`human`/`body`
-inferencer default), IoU tracking, COCO-to-Human3.6M joint conversion, and
-MotionBERT lifting. It does not call `MMPoseInferencer`. Model configs come
-from the installed MMPose `.mim` directory. Checkpoints download on first use
-unless already in the Torch cache. Each config/checkpoint pair can be overridden
-with ROS parameters (`detector_config`, `detector_checkpoint`, `pose2d_config`,
-`pose2d_checkpoint`, `pose3d_config`, `pose3d_checkpoint`).
+This uses RTMDet-M person detection, IoU tracking and
+[RTMW3D-L](https://github.com/open-mmlab/mmpose/tree/759b39c13fea6ba094afc1fa932f51dc1b11cbf9/projects/rtmpose3d)
+for direct 2D/3D estimation of 133 landmarks: 17 body, 6 feet, 68 face and
+21 per hand (wrist plus four joints per finger). MotionBERT is no longer used.
+The RTMW3D project components and config are included in `../../code/rtmpose3d`
+and installed with this package; no separate MMPose checkout is needed.
+Checkpoints download on first use unless already in the Torch cache.
+Config/checkpoint pairs can be overridden with ROS parameters
+(`detector_config`, `detector_checkpoint`, `pose3d_config`, `pose3d_checkpoint`).
+The pose model must provide RTMW3D-compatible 133-point camera-space output
+and `transformed_keypoints` for the image overlay. The previous `pose2d_*`
+and `normalize_pose_2d` parameters have been removed.
 
 CUDA is selected when available; otherwise CPU is used. For example:
 
@@ -115,26 +120,71 @@ Outputs:
 - `/pose_estimator/image`: annotated BGR image, viewable in `rqt_image_view`.
 - `/pose_estimator/poses`: `std_msgs/msg/String` containing JSON. The message
   includes the source timestamp and image frame, joint ordering, and a `people`
-  list. Each person has `track_id`, `bbox_xyxy`, COCO-17 `keypoints_2d` in
-  pixels, `scores_2d`, and H36M-17 `keypoints_3d` in metres. No detections
-  produces an empty list. Track IDs are matched between consecutive frames;
-  they are not persistent identities after occlusion.
+  list. `schema` is `COCO-WholeBody-133`; `joints_2d` and `joints_3d` are
+  explicit ordered landmark-name lists. Each person has `track_id`, `bbox_xyxy`,
+  `keypoint_schema`, 133 `keypoints_2d` in pixels, 133 `keypoints_3d` in metres,
+  and `scores_2d`/`scores_3d`. Both score arrays use the model's shared landmark
+  confidence, not independent estimates of depth accuracy. No detections
+  produces an empty list. Track IDs match consecutive frames and reset after
+  occlusion; they are not persistent identities.
 
-3D coordinates are raw MotionBERT output relative to the pelvis, with no
-display-axis transformation or floor rebasing. They are inferred poses, not
-calibrated world positions or robot joint angles. `image_frame_id` identifies
-the input image and does not assert a ROS TF frame for the 3D coordinates.
+The 3D origin is the midpoint of the hips, with camera axes X right, Y down,
+Z away. Coordinates have no display-axis transformation or floor rebasing.
+RTMW3D uses an assumed focal length (about 1145 pixels) and mean root depth
+(about 5.14 m) without camera calibration. Metric scale and depth are therefore
+approximate; these are not calibrated world positions. `image_frame_id`
+identifies the source image, not a ROS TF frame for the estimated 3D pose.
+The existing `pose_depth_sign` remains configurable; verify its value against
+the new model's depth estimates in your camera setup.
+
+Hand landmarks occupy indices 91–111 (left) and 112–132 (right). For the right
+hand, 112 is the hand wrist; finger bases are 113 (thumb), 117 (index),
+121 (middle), 125 (ring) and 129 (pinky). Use the supplied landmark names to
+resolve indices. The vectors from the hand wrist to the index and pinky bases
+provide a palm plane for a future hand-orientation IK constraint. Reject low
+confidence or collinear landmarks before constructing that plane.
 
 ## OpenSim joint-state output
 
-The pose estimator uses `../../code/arm_marker_ik.py` to fit the existing
-`HumHead_Center`, `centelbow`, and `endpoint` virtual markers with OpenSim's
-`InverseKinematicsSolver`. Shoulder-relative H36M elbow and wrist vectors are
-rotated into model axes and translated to the model's fixed shoulder position.
-No physical markers are required. This prototype creates a marker reference
-and calls `assemble()` for each frame, starting from the previous fitted pose.
-It fits elbow and wrist positions together, without segment-length rescaling.
-The original fitter remains in `../../code/arm_joint_state.py`.
+The pose estimator uses `../../code/arm_joint_state.py` to fit `elbow`,
+`wrist`, `index_mcp`, and `pinky_mcp` relative to the `shoulder` marker.
+RTMW3D indices are 6 (shoulder), 8 (elbow), 10 (wrist), 117 (index MCP),
+and 129 (pinky MCP). All four shoulder-relative vectors enter the same bounded
+least-squares fit, starting from the previous joint angles. The default model
+is `musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim`, which
+contains these five markers. The viewer follows the fitted joint states directly.
+
+The default 3DOF model is a self-contained copy of the scaled 4DOF model,
+with shoulder `axial_rot` locked at its existing default of
+1.0288316440818757 rad (58.95 degrees). Its free coordinates are `plane_elv`,
+`shoulder_elv`, and `elbow_flexion`. The folder includes all referenced mesh
+files and a copy of the scaling measurements. To run the 4DOF version again,
+pass `model_path:=musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim`.
+
+The scaled model uses these right-arm tape measurements: shoulder tip to
+outer elbow 35 cm, outer elbow to wrist 27 cm, wrist to index MCP 9 cm,
+wrist to pinky MCP 8.5 cm, and index-to-pinky MCP width 6.5 cm. The surface
+landmarks correspond to `acc` (clavicle) and `EpL` (humerus) in the original
+TSM model; these are not the internal `shoulder` and `elbow` tracking markers.
+The surface distances are matched in the model's default reference pose.
+
+The humerus is scaled along its length by 1.31396 and both forearm bones by
+1.03787 using OpenSim's model scaling, which also updates joint frames and
+muscle length properties. The hand's in-plane geometry and MCP markers are
+transformed together to fit all three hand measurements; palm-normal
+thickness is retained. Scaled hand meshes have the `scaled_` filename prefix.
+Original model and geometry files are retained. Segment masses are retained
+because no subject mass data were supplied; inertias reflect the new geometry.
+This is a geometric fit for IK, not a calibration of muscle strength or
+RTMW3D's monocular depth scale.
+
+Measurements and scaling transforms are recorded in
+`musculoskeletal_models/tsm_hand_4DOF/scaling_measurements.json`.
+Regenerate the scaled copy from the original model with:
+
+```bash
+.venvs/ros/bin/python musculoskeletal_models/tsm_hand_4DOF/scale_to_measurements.py
+```
 
 Before fitting, camera coordinates are rotated into the OpenSim ground frame.
 The rotation assumes an upright camera facing the subject. The separate
@@ -144,7 +194,7 @@ mapping is `(X_model, Y_model, Z_model) = (Z_pose, -Y_pose, -X_pose)`.
 This preserves the Y-down to Y-up correction while reversing only model X
 relative to the previous mapping. Set `pose_depth_sign` to `1.0` to use
 the camera-depth-away convention without a depth reversal.
-Raw `/pose_estimator/poses` JSON keeps the original MotionBERT coordinates.
+Raw `/pose_estimator/poses` JSON keeps pelvis-relative RTMW3D camera coordinates.
 
 For a different camera placement, set the `camera_to_model_rotation` ROS
 parameter to a row-major list of nine floats describing the calibrated
@@ -156,7 +206,7 @@ Provide the model when starting the node:
 
 ```bash
 ros2 run fatigue_control_ros pose_estimator --ros-args \
--p model_path:=/absolute/path/to/tsm_3DOF.osim
+-p model_path:=/absolute/path/to/tsm_3DOF_arm26_hand_scaled.osim
 ```
 
 The result is published as `sensor_msgs/msg/JointState` on
@@ -167,8 +217,5 @@ a `track_id`. Keep only one person visible during experiments. Frames without
 a person or with invalid 3D landmarks produce no joint state; publishing resumes
 as soon as a valid person is detected again.
 
-The bundled fine-tuned MotionBERT configuration uses `seq_len=1` at inference,
-despite `243frm` in its filename. The node reads sequence settings from the
-config and retains a bounded history. For temporal configurations, unavailable
-future frames are padded for online operation. A gap over one second, a
-backward/repeated timestamp, or a resolution change resets tracking history.
+RTMW3D processes each frame independently. A gap over one second, a
+backward/repeated timestamp, or a resolution change resets tracking.

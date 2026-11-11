@@ -5,7 +5,7 @@
   <arg name="framerate" default="30.0"/>
   <arg name="pixel_format" default="mjpeg2rgb"/>
   <arg name="model_path"
-       default="musculoskeletal_models/tsm_4DOF/tsm_4DOF.osim"/>
+       default="musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim"/>
   <arg name="use_model_viewer" default="true"/>
 
   <include file="$(find-pkg-share fatigue_control_ros)/launch/webcam.launch.py">

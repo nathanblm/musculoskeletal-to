@@ -18,6 +18,11 @@ setup(
         (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages',
             ['../../code/mmpose_pipeline.py', '../../code/arm_joint_state.py',
              '../../code/arm_marker_ik.py']),
+        (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/rtmpose3d',
+            glob('../../code/rtmpose3d/*.py')
+            + ['../../code/rtmpose3d/LICENSE', '../../code/rtmpose3d/UPSTREAM.md']),
+        (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/rtmpose3d/configs',
+            glob('../../code/rtmpose3d/configs/*.py')),
     ],
     install_requires=['setuptools', 'scipy'],
     zip_safe=True,
