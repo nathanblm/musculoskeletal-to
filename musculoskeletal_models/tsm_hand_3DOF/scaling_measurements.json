@@ -36,6 +36,6 @@
   "source_model": "musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim",
   "fixed_coordinate": {
     "name": "axial_rot",
-    "value_radians": 1.0288316440818757
+    "value_radians": 0.0
   }
 }

@@ -22,7 +22,7 @@ class PoseEstimator(Node):
         self.declare_parameter('model_path', '')
         self.declare_parameter(
             'camera_to_model_rotation', CAMERA_TO_OPENSIM.ravel().tolist())
-        self.declare_parameter('pose_depth_sign', -1.0)
+        self.declare_parameter('pose_depth_sign', 1.0)
         defaults = default_model_settings()
         for name, value in defaults.items():
             self.declare_parameter(name, value)

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from scipy.optimize import least_squares
+from scipy.optimize import brentq, least_squares
 
 
 # RTMW3D camera axes: X right, Y down, Z away from the camera.
@@ -31,7 +31,7 @@ class ArmMeasurement:
 
 
 class OpenSimArmJointState:
-    """Fit elbow, wrist and both MCP markers relative to the shoulder."""
+    """Fit elbow bending first, then shoulder orientation using arm and hand directions."""
 
     def __init__(
         self,
@@ -58,6 +58,10 @@ class OpenSimArmJointState:
                 if not coordinates.get(i).get_locked()
             )
         self.coordinate_names = tuple(coordinate_names)
+        self.elbow_index = self.coordinate_names.index('elbow_flexion')
+        self.shoulder_indices = [
+            i for i in range(len(self.coordinate_names)) if i != self.elbow_index
+        ]
         if not self.coordinate_names:
             raise ValueError("The model has no free coordinates to estimate")
 
@@ -130,18 +134,51 @@ class OpenSimArmJointState:
         """Return generalized coordinates in the model's coordinate order."""
         points = np.array([measurement.elbow, measurement.wrist,
                            measurement.index_mcp, measurement.pinky_mcp])
-        target = ((points * [1, 1, self.depth_sign]) @ self.alignment.T).ravel()
+        target = (points * [1, 1, self.depth_sign]) @ self.alignment.T
+
+        def bend(points):
+            upper = points[0]
+            forearm = points[1] - points[0]
+            return np.arctan2(np.linalg.norm(np.cross(upper, forearm)),
+                              upper @ forearm)
+
+        def directions(points):
+            segments = points - np.array([np.zeros(3), points[0],
+                                          points[1], points[1]])
+            return segments / np.linalg.norm(segments, axis=1, keepdims=True)
+
+        fitted = self.previous.copy()
+
+        def model_bend(angle):
+            fitted[self.elbow_index] = angle
+            return bend(self._model_measurement(fitted).reshape(4, 3))
+
+        lower = self.lower_bounds[self.elbow_index]
+        upper = self.upper_bounds[self.elbow_index]
+        # Match the model's marker angle, which includes its anatomical offsets.
+        target_bend = np.clip(bend(target), model_bend(lower), model_bend(upper))
+        fitted[self.elbow_index] = brentq(
+            lambda angle: model_bend(angle) - target_bend, lower, upper)
+        target_directions = directions(target)
+
+        def residual(shoulder):
+            fitted[self.shoulder_indices] = shoulder
+            model_points = self._model_measurement(fitted).reshape(4, 3)
+            return (directions(model_points) - target_directions).ravel()
 
         result = least_squares(
-            lambda coordinates: self._model_measurement(coordinates) - target,
-            x0=self.previous,
-            bounds=(self.lower_bounds, self.upper_bounds),
+            residual,
+            x0=self.previous[self.shoulder_indices],
+            bounds=(self.lower_bounds[self.shoulder_indices],
+                    self.upper_bounds[self.shoulder_indices]),
         )
         if not result.success:
             self._model_measurement(self.previous)
             return None
 
-        self.previous = result.x.copy()
+        fitted[self.shoulder_indices] = result.x
+        self._model_measurement(fitted)
+        self.previous = fitted
         return self.previous.copy()
 
     def estimate_from_people(self, people) -> np.ndarray | None:

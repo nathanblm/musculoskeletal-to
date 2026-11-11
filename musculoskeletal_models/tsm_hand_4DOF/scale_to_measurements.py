@@ -145,6 +145,7 @@ hand.setInertia(osim.Inertia(inertia_matrix[0, 0], inertia_matrix[1, 1],
                             inertia_matrix[2, 2], inertia_matrix[0, 1],
                             inertia_matrix[0, 2], inertia_matrix[1, 2]))
 model.setName('tsm_4DOF_arm26_hand_scaled')
+model.getCoordinateSet().get('axial_rot').setDefaultValue(0.0)
 model.finalizeFromProperties()
 model.finalizeConnections()
 model.printToXML(str(OUTPUT))

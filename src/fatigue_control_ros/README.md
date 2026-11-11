@@ -149,14 +149,18 @@ confidence or collinear landmarks before constructing that plane.
 The pose estimator uses `../../code/arm_joint_state.py` to fit `elbow`,
 `wrist`, `index_mcp`, and `pinky_mcp` relative to the `shoulder` marker.
 RTMW3D indices are 6 (shoulder), 8 (elbow), 10 (wrist), 117 (index MCP),
-and 129 (pinky MCP). All four shoulder-relative vectors enter the same bounded
-least-squares fit, starting from the previous joint angles. The default model
+and 129 (pinky MCP). Elbow flexion is fitted first from the angle between the
+upper arm and forearm, accounting for the model's marker offsets and joint limits.
+With the elbow fixed, a bounded least-squares fit estimates shoulder angles from
+unit directions along the upper arm, forearm, and wrist-to-MCP vectors, starting
+from the previous shoulder angles. This prevents hand or length errors from
+being compensated by elbow bending. The default model
 is `musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim`, which
 contains these five markers. The viewer follows the fitted joint states directly.
 
 The default 3DOF model is a self-contained copy of the scaled 4DOF model,
-with shoulder `axial_rot` locked at its existing default of
-1.0288316440818757 rad (58.95 degrees). Its free coordinates are `plane_elv`,
+with shoulder `axial_rot` locked at 0 rad so elbow flexion moves the forearm
+forward in the model's default shoulder pose. Its free coordinates are `plane_elv`,
 `shoulder_elv`, and `elbow_flexion`. The folder includes all referenced mesh
 files and a copy of the scaling measurements. To run the 4DOF version again,
 pass `model_path:=musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim`.
@@ -188,12 +192,11 @@ Regenerate the scaled copy from the original model with:
 
 Before fitting, camera coordinates are rotated into the OpenSim ground frame.
 The rotation assumes an upright camera facing the subject. The separate
-`pose_depth_sign` parameter defaults to `-1.0` to correct the reversed
-front/back motion observed with this setup. With both defaults, the combined
-mapping is `(X_model, Y_model, Z_model) = (Z_pose, -Y_pose, -X_pose)`.
-This preserves the Y-down to Y-up correction while reversing only model X
-relative to the previous mapping. Set `pose_depth_sign` to `1.0` to use
-the camera-depth-away convention without a depth reversal.
+`pose_depth_sign` defaults to `1.0`. With the default camera axes, the mapping
+is `(X_model, Y_model, Z_model) = (-Z_pose, -Y_pose, -X_pose)`, so a wrist moving
+toward the camera bends forward in the OpenSim model. The former `-1.0` default
+reversed that motion. Set `pose_depth_sign` to `-1.0` only if your camera's
+reported depth axis runs toward the camera.
 Raw `/pose_estimator/poses` JSON keeps pelvis-relative RTMW3D camera coordinates.
 
 For a different camera placement, set the `camera_to_model_rotation` ROS
