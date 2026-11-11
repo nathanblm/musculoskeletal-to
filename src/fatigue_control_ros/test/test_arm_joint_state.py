@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arm_joint_state import ArmMeasurement, OpenSimArmJointState
+from arm_joint_state import ArmMeasurement, OpenSimArmJointState, OpenSimMarkerIK
 
 
 MODEL_PATH = (Path(__file__).resolve().parents[3]
@@ -30,7 +30,7 @@ def test_camera_landmarks_recover_model_pose(pose, depth_sign):
     points = np.zeros((133, 3))
     points[6] = [0.2, -0.1, 2.0]
     points[[8, 10, 117, 129]] = camera + points[6]
-    for _ in range(10):
+    for _ in range(25):
         fitted = arm.estimate_from_people([{'keypoints_3d': points.tolist()}])
     np.testing.assert_allclose(fitted, expected, atol=3e-4)
     np.testing.assert_allclose(arm._model_measurement(fitted), landmarks.ravel(), atol=1e-5)
@@ -42,7 +42,7 @@ def test_both_mcps_are_in_the_ik_objective():
         MODEL_PATH, alignment=np.eye(3),
         initial_coordinates=pose + [0.05, -0.04, 0.04, 0.02])
     targets = arm._model_measurement(pose).reshape(4, 3)
-    for _ in range(10):
+    for _ in range(25):
         fitted = arm.estimate(ArmMeasurement(*targets))
     twisted = pose.copy()
     twisted[2] += 0.5
@@ -136,3 +136,37 @@ def test_unconverged_frame_keeps_previous_pose_and_next_frame_recovers(monkeypat
     for _ in range(10):
         fitted = arm.estimate(measurement)
     np.testing.assert_allclose(fitted, pose, atol=3e-4)
+
+
+@pytest.mark.parametrize('dof', [3, 4])
+@pytest.mark.parametrize('depth_sign', [-1.0, 1.0])
+def test_opensim_marker_ik_tracks_successive_frames(dof, depth_sign):
+    model = (MODEL_PATH.parents[1] / f'tsm_hand_{dof}DOF'
+             / f'tsm_{dof}DOF_arm26_hand_scaled.osim')
+    reference = OpenSimArmJointState(model)
+    arm = OpenSimMarkerIK(model, depth_sign=depth_sign)
+    poses = ([0.4, 1.1, 0.8], [-0.5, 1.5, 1.2]) if dof == 3 else (
+        [0.4, 1.1, -0.4, 0.8], [-0.5, 1.5, 0.2, 1.2])
+    for pose in poses:
+        landmarks = reference._model_measurement(np.array(pose)).reshape(4, 3)
+        camera = (landmarks @ arm.alignment) * [1, 1, depth_sign]
+        points = np.zeros((133, 3))
+        points[6] = [0.2, -0.1, 2.0]
+        points[[8, 10, 117, 129]] = camera + points[6]
+        fitted = arm.estimate_from_people([{'keypoints_3d': points.tolist()}])
+        np.testing.assert_allclose(fitted, pose, atol=5e-4)
+        np.testing.assert_allclose(
+            arm._model_measurement(fitted), landmarks.ravel(), atol=5e-4)
+
+
+def test_opensim_marker_ik_uses_mcp_targets():
+    model = (MODEL_PATH.parents[1] / 'tsm_hand_4DOF'
+             / 'tsm_4DOF_arm26_hand_scaled.osim')
+    reference = OpenSimArmJointState(model, alignment=np.eye(3))
+    arm = OpenSimMarkerIK(model, alignment=np.eye(3))
+    landmarks = reference._model_measurement(
+        np.array([0.4, 1.1, -0.4, 0.8])).reshape(4, 3)
+    original = arm.estimate(ArmMeasurement(*landmarks))
+    landmarks[2] += [0.01, 0.0, 0.02]
+    changed = arm.estimate(ArmMeasurement(*landmarks))
+    assert abs(changed[2] - original[2]) > 0.01

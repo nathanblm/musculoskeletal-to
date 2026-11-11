@@ -36,7 +36,7 @@ ros2 topic hz /camera/image_raw
 ```
 
 To start the webcam, pose estimator and Simbody model viewer together, with the
-scaled `tsm_hand_3DOF` OpenSim model as the default:
+scaled `tsm_hand_4DOF` OpenSim model as the default:
 
 ```bash
 ros2 launch fatigue_control_ros pose_estimator.launch.xml
@@ -48,6 +48,19 @@ The model path can be overridden for another model:
 ros2 launch fatigue_control_ros pose_estimator.launch.xml \
   model_path:=musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim
 ```
+
+The launch file defaults to the existing angle solver. To compare OpenSim's
+built-in marker IK on the same five landmarks and model, run:
+
+```bash
+ros2 launch fatigue_control_ros pose_estimator.launch.xml ik_solver:=opensim
+```
+
+Use `ik_solver:=custom` for the existing solver. Both modes publish the same
+`/pose_estimator/joint_states` topic and drive the same viewer. OpenSim marker IK
+fits the five marker positions in metres with equal marker weights. The custom
+solver fits limb directions and elbow bend and favors previous angles, so its
+noise behavior may differ from the built-in solver.
 
 The `model_viewer` node uses the same `model_path` and listens to
 `/pose_estimator/joint_states` with sensor-data QoS. It displays the default
@@ -153,16 +166,16 @@ and 129 (pinky MCP). A bounded least-squares fit uses the measured upper-arm,
 forearm, and wrist-to-MCP directions plus the upper-arm-to-forearm bend angle.
 It also penalizes every joint angle's change from its previous value with the
 same fixed weight at all elbow flexions, reducing jitter from noisy landmarks.
-The default model
-is `musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim`, which
+The launch file defaults to
+`musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim`, which
 contains these five markers. The viewer follows the fitted joint states directly.
 
-The default 3DOF model is a self-contained copy of the scaled 4DOF model,
+The 3DOF model is a self-contained copy of the scaled 4DOF model,
 with shoulder `axial_rot` locked at 0 rad so elbow flexion moves the forearm
 forward in the model's default shoulder pose. Its free coordinates are `plane_elv`,
 `shoulder_elv`, and `elbow_flexion`. The folder includes all referenced mesh
-files and a copy of the scaling measurements. To run the 4DOF version again,
-pass `model_path:=musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim`.
+files and a copy of the scaling measurements. Select it with the `model_path`
+launch argument shown above.
 
 The scaled model uses these right-arm tape measurements: shoulder tip to
 outer elbow 35 cm, outer elbow to wrist 27 cm, wrist to index MCP 9 cm,

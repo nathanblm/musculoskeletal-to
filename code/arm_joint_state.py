@@ -181,3 +181,49 @@ class OpenSimArmJointState:
     def estimate_from_people(self, people) -> np.ndarray | None:
         measurement = self.measurement_from_people(people)
         return None if measurement is None else self.estimate(measurement)
+
+
+class OpenSimMarkerIK(OpenSimArmJointState):
+    """Fit the same five landmarks with OpenSim's marker IK solver."""
+
+    def __init__(self, model_path, **kwargs):
+        super().__init__(model_path, **kwargs)
+        self.marker_names = [marker.getName() for marker in self.markers]
+        for coordinate in self.coordinates:
+            coordinate.setClamped(self.state, True)
+
+    def estimate(self, measurement: ArmMeasurement) -> np.ndarray | None:
+        import opensim as osim
+
+        for coordinate, value in zip(self.coordinates, self.previous):
+            coordinate.setValue(self.state, float(value), False)
+        self.model.realizePosition(self.state)
+        shoulder = self.markers[0].getLocationInGround(self.state)
+        origin = np.array([shoulder[i] for i in range(3)])
+        points = np.array([measurement.elbow, measurement.wrist,
+                           measurement.index_mcp, measurement.pinky_mcp])
+        targets = origin + (points * [1, 1, self.depth_sign]) @ self.alignment.T
+
+        row = osim.RowVectorVec3(5)
+        row[0] = osim.Vec3(*origin)
+        for i, point in enumerate(targets, 1):
+            row[i] = osim.Vec3(*point)
+        table = osim.TimeSeriesTableVec3()
+        table.setColumnLabels(self.marker_names)
+        table.appendRow(0.0, row)
+        reference = osim.MarkersReference(table, osim.SetMarkerWeights())
+        solver = osim.InverseKinematicsSolver(
+            self.model, reference, osim.SimTKArrayCoordinateReference())
+        solver.setAdvanceTimeFromReference(False)
+        solver.setAccuracy(1e-5)
+        try:
+            solver.assemble(self.state)
+        except RuntimeError:
+            for coordinate, value in zip(self.coordinates, self.previous):
+                coordinate.setValue(self.state, float(value), False)
+            return None
+
+        self.previous = np.array([
+            coordinate.getValue(self.state) for coordinate in self.coordinates
+        ])
+        return self.previous.copy()
