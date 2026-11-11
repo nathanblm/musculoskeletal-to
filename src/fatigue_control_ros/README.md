@@ -149,12 +149,11 @@ confidence or collinear landmarks before constructing that plane.
 The pose estimator uses `../../code/arm_joint_state.py` to fit `elbow`,
 `wrist`, `index_mcp`, and `pinky_mcp` relative to the `shoulder` marker.
 RTMW3D indices are 6 (shoulder), 8 (elbow), 10 (wrist), 117 (index MCP),
-and 129 (pinky MCP). Elbow flexion is fitted first from the angle between the
-upper arm and forearm, accounting for the model's marker offsets and joint limits.
-With the elbow fixed, a bounded least-squares fit estimates shoulder angles from
-unit directions along the upper arm, forearm, and wrist-to-MCP vectors, starting
-from the previous shoulder angles. This prevents hand or length errors from
-being compensated by elbow bending. The default model
+and 129 (pinky MCP). A bounded least-squares fit uses the measured upper-arm,
+forearm, and wrist-to-MCP directions plus the upper-arm-to-forearm bend angle.
+It also penalizes every joint angle's change from its previous value with the
+same fixed weight at all elbow flexions, reducing jitter from noisy landmarks.
+The default model
 is `musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim`, which
 contains these five markers. The viewer follows the fitted joint states directly.
 

@@ -31,7 +31,7 @@ class ArmMeasurement:
 
 
 class OpenSimArmJointState:
-    """Fit elbow bending first, then shoulder orientation using arm and hand directions."""
+    """Fit arm directions and elbow bending, favoring the previous angles."""
 
     def __init__(
         self,
@@ -59,9 +59,6 @@ class OpenSimArmJointState:
             )
         self.coordinate_names = tuple(coordinate_names)
         self.elbow_index = self.coordinate_names.index('elbow_flexion')
-        self.shoulder_indices = [
-            i for i in range(len(self.coordinate_names)) if i != self.elbow_index
-        ]
         if not self.coordinate_names:
             raise ValueError("The model has no free coordinates to estimate")
 
@@ -147,38 +144,38 @@ class OpenSimArmJointState:
                                           points[1], points[1]])
             return segments / np.linalg.norm(segments, axis=1, keepdims=True)
 
-        fitted = self.previous.copy()
+        target_directions = directions(target)
+        probe = self.previous.copy()
 
         def model_bend(angle):
-            fitted[self.elbow_index] = angle
-            return bend(self._model_measurement(fitted).reshape(4, 3))
+            probe[self.elbow_index] = angle
+            return bend(self._model_measurement(probe).reshape(4, 3))
 
         lower = self.lower_bounds[self.elbow_index]
         upper = self.upper_bounds[self.elbow_index]
-        # Match the model's marker angle, which includes its anatomical offsets.
         target_bend = np.clip(bend(target), model_bend(lower), model_bend(upper))
-        fitted[self.elbow_index] = brentq(
+        target_elbow = brentq(
             lambda angle: model_bend(angle) - target_bend, lower, upper)
-        target_directions = directions(target)
 
-        def residual(shoulder):
-            fitted[self.shoulder_indices] = shoulder
-            model_points = self._model_measurement(fitted).reshape(4, 3)
-            return (directions(model_points) - target_directions).ravel()
+        def residual(coordinates):
+            model_points = self._model_measurement(coordinates).reshape(4, 3)
+            return np.r_[
+                (directions(model_points) - target_directions).ravel(),
+                3.0 * (coordinates[self.elbow_index] - target_elbow),
+                0.6 * (coordinates - self.previous),
+            ]
 
         result = least_squares(
             residual,
-            x0=self.previous[self.shoulder_indices],
-            bounds=(self.lower_bounds[self.shoulder_indices],
-                    self.upper_bounds[self.shoulder_indices]),
+            x0=self.previous,
+            bounds=(self.lower_bounds, self.upper_bounds),
         )
         if not result.success:
             self._model_measurement(self.previous)
             return None
 
-        fitted[self.shoulder_indices] = result.x
-        self._model_measurement(fitted)
-        self.previous = fitted
+        self._model_measurement(result.x)
+        self.previous = result.x.copy()
         return self.previous.copy()
 
     def estimate_from_people(self, people) -> np.ndarray | None:

@@ -21,23 +21,29 @@ MODEL_PATH = (Path(__file__).resolve().parents[3]
     [0.4, 1.1, -0.6, 0.0],  # MCPs constrain rotation with a straight elbow.
 ])
 def test_camera_landmarks_recover_model_pose(pose, depth_sign):
-    arm = OpenSimArmJointState(MODEL_PATH, depth_sign=depth_sign)
     expected = np.array(pose)
+    arm = OpenSimArmJointState(
+        MODEL_PATH, depth_sign=depth_sign,
+        initial_coordinates=expected + [0.05, -0.04, 0.04, 0.02])
     landmarks = arm._model_measurement(expected).reshape(4, 3)
     camera = (landmarks @ arm.alignment) * [1, 1, depth_sign]
     points = np.zeros((133, 3))
     points[6] = [0.2, -0.1, 2.0]
     points[[8, 10, 117, 129]] = camera + points[6]
-    fitted = arm.estimate_from_people([{'keypoints_3d': points.tolist()}])
+    for _ in range(10):
+        fitted = arm.estimate_from_people([{'keypoints_3d': points.tolist()}])
     np.testing.assert_allclose(fitted, expected, atol=3e-4)
     np.testing.assert_allclose(arm._model_measurement(fitted), landmarks.ravel(), atol=1e-5)
 
 
 def test_both_mcps_are_in_the_ik_objective():
-    arm = OpenSimArmJointState(MODEL_PATH, alignment=np.eye(3))
     pose = np.array([0.4, 1.1, -0.6, 0.0])
+    arm = OpenSimArmJointState(
+        MODEL_PATH, alignment=np.eye(3),
+        initial_coordinates=pose + [0.05, -0.04, 0.04, 0.02])
     targets = arm._model_measurement(pose).reshape(4, 3)
-    fitted = arm.estimate(ArmMeasurement(*targets))
+    for _ in range(10):
+        fitted = arm.estimate(ArmMeasurement(*targets))
     twisted = pose.copy()
     twisted[2] += 0.5
     # Check the hand-marker residuals change with axial rotation.
@@ -69,7 +75,7 @@ def test_default_elbow_bends_forward(dof):
 
 @pytest.mark.parametrize('dof', [3, 4])
 @pytest.mark.parametrize('elbow', [0.0, 1.2])
-def test_lengths_and_hand_errors_do_not_change_elbow(dof, elbow):
+def test_lengths_and_hand_errors_preserve_elbow_constraint(dof, elbow):
     model = (MODEL_PATH.parents[1] / f'tsm_hand_{dof}DOF'
              / f'tsm_{dof}DOF_arm26_hand_scaled.osim')
     arm = OpenSimArmJointState(model, alignment=np.eye(3))
@@ -83,12 +89,33 @@ def test_lengths_and_hand_errors_do_not_change_elbow(dof, elbow):
         distorted[0] = 1.2 * points[0]
         distorted[1] = distorted[0] + 0.8 * (points[1] - points[0])
         distorted[2:] = distorted[1] + 1.3 * (points[2:] - points[1])
-        fitted = arm.estimate(ArmMeasurement(*distorted))
+        for _ in range(10):
+            fitted = arm.estimate(ArmMeasurement(*distorted))
         np.testing.assert_allclose(fitted, pose, atol=3e-4)
         # Inconsistent hand landmarks must not pull the elbow away from its bend.
         distorted[2:] += [0.04, -0.03, 0.02]
         fitted = arm.estimate(ArmMeasurement(*distorted))
-        np.testing.assert_allclose(fitted[arm.elbow_index], elbow, atol=1e-8)
+        np.testing.assert_allclose(fitted[arm.elbow_index], elbow, atol=0.03)
+
+
+@pytest.mark.parametrize('dof', [3, 4])
+@pytest.mark.parametrize('elbow', [0.2, 1.2])
+def test_previous_angles_influence_all_coordinates(dof, elbow):
+    model = (MODEL_PATH.parents[1] / f'tsm_hand_{dof}DOF'
+             / f'tsm_{dof}DOF_arm26_hand_scaled.osim')
+    reference = OpenSimArmJointState(model, alignment=np.eye(3))
+    pose = reference.previous.copy()
+    pose[:2] = [0.4, 1.1]
+    pose[reference.elbow_index] = elbow
+    points = reference._model_measurement(pose).reshape(4, 3)
+    offset = np.array([0.1, -0.1, 0.1] if dof == 3
+                      else [0.1, -0.1, 0.1, 0.1])
+    for direction in [-1, 1]:
+        arm = OpenSimArmJointState(
+            model, alignment=np.eye(3),
+            initial_coordinates=pose + direction * offset)
+        fitted = arm.estimate(ArmMeasurement(*points))
+        assert np.all((fitted - pose) * direction * offset > 0)
 
 
 def test_unconverged_frame_keeps_previous_pose_and_next_frame_recovers(monkeypatch):
@@ -106,4 +133,6 @@ def test_unconverged_frame_keeps_previous_pose_and_next_frame_recovers(monkeypat
     np.testing.assert_array_equal(arm.previous, previous)
     np.testing.assert_allclose([c.getValue(arm.state) for c in arm.coordinates], previous)
     monkeypatch.setattr(core, 'least_squares', solve)
-    np.testing.assert_allclose(arm.estimate(measurement), pose, atol=3e-4)
+    for _ in range(10):
+        fitted = arm.estimate(measurement)
+    np.testing.assert_allclose(fitted, pose, atol=3e-4)
