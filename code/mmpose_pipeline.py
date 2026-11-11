@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -37,13 +36,6 @@ def default_model_settings():
     }
 
 
-@dataclass
-class PoseFrame:
-
-    people: list
-    overlay: np.ndarray
-
-
 class MMPosePipeline:
 
     def __init__(self, settings=None):
@@ -77,10 +69,7 @@ class MMPosePipeline:
         results = self._detect_pose(image)
         tracked = self._track(results)
 
-        return PoseFrame(
-            people=self._format_people(tracked),
-            overlay=self.draw_overlay(image, tracked),
-        )
+        return self._format_people(tracked)
 
     def _detect_pose(self, image):
         # create bounding boxes for each person in the image
@@ -129,27 +118,28 @@ class MMPosePipeline:
         people = []
         for result in tracked:
             pred = result.pred_instances
+
+            # RTMW3D estimates landmark positions in camera coordinates.
+            # for arm IK, we only need the arm geometry relative to the shoulder.
+            # we use the shoulder as the origin so the landmarks match the OpenSim model
+            # whose torso/shoulder is fixed during fitting.
+
             joints = np.asarray(pred.keypoints).reshape(-1, 133, 3)[0].copy()
-            # Camera coordinates are metric; remove the assumed root depth.
-            joints -= joints[[11, 12]].mean(axis=0)
+            joints -= joints[6]
             people.append({
                 'track_id': int(result.track_id),
-                'bbox_xyxy': pred.bboxes[0].tolist(),
-                'keypoint_schema': 'COCO-WholeBody-133',
                 'keypoints_2d': pred.transformed_keypoints[0].tolist(),
                 'scores_2d': pred.keypoint_scores[0].tolist(),
                 'keypoints_3d': joints.tolist(),
-                'scores_3d': pred.keypoint_scores[0].tolist(),
             })
         return people
 
-    def draw_overlay(self, image, results):
-        """Return a BGR image with whole-body skeletons without changing the input."""
+    def draw_overlay(self, image, people):
         canvas = image.copy()
         links = WHOLEBODY_META['skeleton_links']
-        for result in results:
-            points = result.pred_instances.transformed_keypoints[0]
-            scores = result.pred_instances.keypoint_scores[0]
+        for person in people:
+            points = np.asarray(person['keypoints_2d'])
+            scores = np.asarray(person['scores_2d'])
             visible = scores > self.settings['keypoint_threshold']
             for a, b in links:
                 if visible[a] and visible[b]:

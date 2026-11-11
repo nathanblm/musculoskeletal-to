@@ -11,7 +11,6 @@ from sensor_msgs.msg import JointState
 
 
 def configure_simbody(osim):
-    """Locate the visualizer in either supported Simbody install layout."""
     if os.environ.get('SIMBODY_HOME'):
         return
     prefixes = (Path(sys.prefix), *Path(osim.__file__).resolve().parents)
@@ -25,7 +24,6 @@ def configure_simbody(osim):
 
 
 class ModelViewer(Node):
-    """Keep a visualized OpenSim model in sync with named joint positions."""
 
     def __init__(self):
         super().__init__('model_viewer')
@@ -89,7 +87,6 @@ class ModelViewer(Node):
         self.model.getVisualizer().show(self.state)
 
     def destroy_node(self):
-        """Close the Simbody window when the ROS node stops."""
         try:
             self.visualizer.shutdown()
         finally:

@@ -16,7 +16,7 @@ setup(
         ('share/' + package_name + '/launch',
             glob('launch/*.launch.py') + glob('launch/*.launch.xml')),
         (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages',
-            ['../../code/mmpose_pipeline.py', '../../code/arm_joint_state.py']),
+            ['../../code/mmpose_pipeline.py']),
         (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/rtmpose3d',
             glob('../../code/rtmpose3d/*.py')
             + ['../../code/rtmpose3d/LICENSE', '../../code/rtmpose3d/UPSTREAM.md']),
