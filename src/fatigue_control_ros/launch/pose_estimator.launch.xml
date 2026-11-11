@@ -6,7 +6,6 @@
   <arg name="pixel_format" default="mjpeg2rgb"/>
   <arg name="model_path"
        default="musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim"/>
-  <arg name="ik_solver" default="custom"/>
   <arg name="use_model_viewer" default="true"/>
 
   <include file="$(find-pkg-share fatigue_control_ros)/launch/webcam.launch.py">
@@ -22,7 +21,6 @@
         name="pose_estimator"
         output="screen">
     <param name="model_path" value="$(var model_path)"/>
-    <param name="ik_solver" value="$(var ik_solver)"/>
   </node>
 
   <node pkg="fatigue_control_ros"

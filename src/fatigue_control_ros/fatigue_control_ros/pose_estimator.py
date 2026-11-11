@@ -8,7 +8,7 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
 
-from arm_joint_state import CAMERA_TO_OPENSIM, OpenSimArmJointState, OpenSimMarkerIK
+from arm_joint_state import CAMERA_TO_OPENSIM, OpenSimArmJointState
 from mmpose_pipeline import (
     WHOLEBODY_JOINTS, MMPosePipeline, default_model_settings,
 )
@@ -20,7 +20,6 @@ class PoseEstimator(Node):
 
         self.declare_parameter('image_topic', '/camera/image_raw')
         self.declare_parameter('model_path', '')
-        self.declare_parameter('ik_solver', 'custom')
         self.declare_parameter(
             'camera_to_model_rotation', CAMERA_TO_OPENSIM.ravel().tolist())
         self.declare_parameter('pose_depth_sign', 1.0)
@@ -40,11 +39,7 @@ class PoseEstimator(Node):
         rotation = self.get_parameter('camera_to_model_rotation').value
         if len(rotation) != 9:
             raise ValueError('camera_to_model_rotation must contain 9 values')
-        solver = {
-            'custom': OpenSimArmJointState,
-            'opensim': OpenSimMarkerIK,
-        }[self.get_parameter('ik_solver').value]
-        self.arm_state = solver(
+        self.arm_state = OpenSimArmJointState(
             model_path, alignment=[rotation[i:i + 3] for i in range(0, 9, 3)],
             depth_sign=self.get_parameter('pose_depth_sign').value)
 

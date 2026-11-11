@@ -49,18 +49,9 @@ ros2 launch fatigue_control_ros pose_estimator.launch.xml \
   model_path:=musculoskeletal_models/tsm_hand_3DOF/tsm_3DOF_arm26_hand_scaled.osim
 ```
 
-The launch file defaults to the existing angle solver. To compare OpenSim's
-built-in marker IK on the same five landmarks and model, run:
-
-```bash
-ros2 launch fatigue_control_ros pose_estimator.launch.xml ik_solver:=opensim
-```
-
-Use `ik_solver:=custom` for the existing solver. Both modes publish the same
-`/pose_estimator/joint_states` topic and drive the same viewer. OpenSim marker IK
-fits the five marker positions in metres with equal marker weights. The custom
-solver fits limb directions and elbow bend and favors previous angles, so its
-noise behavior may differ from the built-in solver.
+OpenSim's built-in marker IK fits the five marker positions in metres with
+equal weights and publishes the result on `/pose_estimator/joint_states` for the
+viewer.
 
 The `model_viewer` node uses the same `model_path` and listens to
 `/pose_estimator/joint_states` with sensor-data QoS. It displays the default
@@ -162,10 +153,9 @@ confidence or collinear landmarks before constructing that plane.
 The pose estimator uses `../../code/arm_joint_state.py` to fit `elbow`,
 `wrist`, `index_mcp`, and `pinky_mcp` relative to the `shoulder` marker.
 RTMW3D indices are 6 (shoulder), 8 (elbow), 10 (wrist), 117 (index MCP),
-and 129 (pinky MCP). A bounded least-squares fit uses the measured upper-arm,
-forearm, and wrist-to-MCP directions plus the upper-arm-to-forearm bend angle.
-It also penalizes every joint angle's change from its previous value with the
-same fixed weight at all elbow flexions, reducing jitter from noisy landmarks.
+and 129 (pinky MCP). OpenSim's `InverseKinematicsSolver` fits the five marker
+positions with equal weights. It starts each frame from the previous pose and
+keeps the model coordinates within their ranges.
 The launch file defaults to
 `musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim`, which
 contains these five markers. The viewer follows the fitted joint states directly.
