@@ -1,0 +1,33 @@
+<launch>
+  <arg name="video_device" default="/dev/video0"/>
+  <arg name="image_width" default="1280"/>
+  <arg name="image_height" default="720"/>
+  <arg name="framerate" default="30.0"/>
+  <arg name="pixel_format" default="mjpeg2rgb"/>
+  <arg name="model_path"
+       default="musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim"/>
+  <arg name="use_model_viewer" default="true"/>
+
+  <include file="$(find-pkg-share fatigue_control_ros)/launch/webcam.launch.py">
+    <arg name="video_device" value="$(var video_device)"/>
+    <arg name="image_width" value="$(var image_width)"/>
+    <arg name="image_height" value="$(var image_height)"/>
+    <arg name="framerate" value="$(var framerate)"/>
+    <arg name="pixel_format" value="$(var pixel_format)"/>
+  </include>
+
+  <node pkg="fatigue_control_ros"
+        exec="pose_estimator"
+        name="pose_estimator"
+        output="screen">
+    <param name="model_path" value="$(var model_path)"/>
+  </node>
+
+  <node pkg="fatigue_control_ros"
+        exec="model_viewer"
+        name="model_viewer"
+        output="screen"
+        if="$(var use_model_viewer)">
+    <param name="model_path" value="$(var model_path)"/>
+  </node>
+</launch>
