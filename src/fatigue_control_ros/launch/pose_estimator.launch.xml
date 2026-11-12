@@ -8,6 +8,17 @@
        default="musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim"/>
   <arg name="use_model_viewer" default="true"/>
 
+  <arg name="landmark_z_cutoff_hz" default="0.5"/>
+  <arg name="landmark_xy_cutoff_hz" default="1.01"/>
+  <arg name="position_axial_rot_cutoff_hz" default="0.50"/>
+  <arg name="position_plane_elv_cutoff_hz" default="0.0"/>
+  <arg name="position_shoulder_elv_cutoff_hz" default="0.0"/>
+  <arg name="position_elbow_flexion_cutoff_hz" default="0.0"/>
+  <arg name="velocity_axial_rot_cutoff_hz" default="0.65"/>
+  <arg name="velocity_plane_elv_cutoff_hz" default="0.65"/>
+  <arg name="velocity_shoulder_elv_cutoff_hz" default="0.65"/>
+  <arg name="velocity_elbow_flexion_cutoff_hz" default="0.65"/>
+
   <include file="$(find-pkg-share fatigue_control_ros)/launch/webcam.launch.py">
     <arg name="video_device" value="$(var video_device)"/>
     <arg name="image_width" value="$(var image_width)"/>
@@ -21,6 +32,16 @@
         name="pose_estimator"
         output="screen">
     <param name="model_path" value="$(var model_path)"/>
+    <param name="landmark_z_cutoff_hz" value="$(var landmark_z_cutoff_hz)"/>
+    <param name="landmark_xy_cutoff_hz" value="$(var landmark_xy_cutoff_hz)"/>
+    <param name="position_cutoffs_hz.axial_rot" value="$(var position_axial_rot_cutoff_hz)"/>
+    <param name="position_cutoffs_hz.plane_elv" value="$(var position_plane_elv_cutoff_hz)"/>
+    <param name="position_cutoffs_hz.shoulder_elv" value="$(var position_shoulder_elv_cutoff_hz)"/>
+    <param name="position_cutoffs_hz.elbow_flexion" value="$(var position_elbow_flexion_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz.axial_rot" value="$(var velocity_axial_rot_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz.plane_elv" value="$(var velocity_plane_elv_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz.shoulder_elv" value="$(var velocity_shoulder_elv_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz.elbow_flexion" value="$(var velocity_elbow_flexion_cutoff_hz)"/>
   </node>
 
   <node pkg="fatigue_control_ros"

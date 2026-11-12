@@ -9,6 +9,8 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
 
+from visuals.live_joint_velocity import LiveJointVelocityPlot
+
 
 def configure_simbody(osim):
     if os.environ.get('SIMBODY_HOME'):
@@ -51,6 +53,8 @@ class ModelViewer(Node):
         self.visualizer = self.model.getVisualizer().updSimbodyVisualizer()
         self.model.realizePosition(self.state)
         self.model.getVisualizer().show(self.state)
+        self.velocity_plot = LiveJointVelocityPlot(self.coordinates)
+        self.plot_timer = self.create_timer(1.0 / 30.0, self.velocity_plot.refresh)
         self.subscription = self.create_subscription(
             JointState,
             self.get_parameter('joint_states_topic').value,
@@ -85,12 +89,30 @@ class ModelViewer(Node):
         self.model.assemble(self.state)
         self.model.realizePosition(self.state)
         self.model.getVisualizer().show(self.state)
+        if msg.velocity:
+            if (len(msg.velocity) != len(msg.name)
+                    or not all(math.isfinite(value) for value in msg.velocity)):
+                self.get_logger().warning(
+                    'Ignoring velocities: need one finite velocity per joint name',
+                    throttle_duration_sec=5.0,
+                )
+                return
+            timestamp_ns = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+            if timestamp_ns == 0:
+                timestamp_ns = self.get_clock().now().nanoseconds
+            self.velocity_plot.append(timestamp_ns * 1e-9, {
+                name: value for name, value in zip(msg.name, msg.velocity)
+                if name in self.coordinates
+            })
 
     def destroy_node(self):
         try:
             self.visualizer.shutdown()
         finally:
-            result = super().destroy_node()
+            try:
+                self.velocity_plot.close()
+            finally:
+                result = super().destroy_node()
         return result
 
 

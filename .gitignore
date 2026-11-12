@@ -8,3 +8,5 @@ install/
 log/
 build/
 .venvs/
+
+.pytest_cache/

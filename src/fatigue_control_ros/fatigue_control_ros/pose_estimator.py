@@ -15,6 +15,33 @@ CAMERA_TO_OPENSIM = np.array([
     [-1.0, 0.0, 0.0],
 ])
 
+
+class LowPassFilter:
+
+    def __init__(self, cutoff_hz):
+        cutoff_hz = np.asarray(cutoff_hz, dtype=float)
+        if not np.all(np.isfinite(cutoff_hz)) or np.any(cutoff_hz < 0):
+            raise ValueError('cutoff_hz must be finite and non-negative')
+        self.cutoff_hz = cutoff_hz.copy()
+        self.reset()
+
+    def reset(self):
+        self.value = None
+        self.timestamp_ns = None
+
+    def update(self, sample, timestamp_ns):
+        sample = np.asarray(sample, dtype=float)
+        if self.timestamp_ns is None or timestamp_ns <= self.timestamp_ns:
+            self.value = sample.copy()
+        else:
+            dt = (timestamp_ns - self.timestamp_ns) * 1e-9
+            alpha = np.where(self.cutoff_hz == 0, 1.0,
+                             -np.expm1(-2 * np.pi * self.cutoff_hz * dt))
+            self.value += alpha * (sample - self.value)
+        self.timestamp_ns = timestamp_ns
+        return self.value.copy()
+
+
 class PoseEstimator(Node):
 
     def __init__(self):
@@ -22,6 +49,12 @@ class PoseEstimator(Node):
 
         self.declare_parameter('image_topic', '/camera/image_raw')
         self.declare_parameter('model_path', '')
+        self.declare_parameter('landmark_z_cutoff_hz')
+        self.declare_parameter('landmark_xy_cutoff_hz')
+
+        self.landmark_filter = LowPassFilter(
+            [self.get_parameter('landmark_xy_cutoff_hz').value] * 2
+            + [self.get_parameter('landmark_z_cutoff_hz').value])
 
         settings = default_model_settings()
         self.get_logger().info(
@@ -47,6 +80,18 @@ class PoseEstimator(Node):
             if not coordinates.get(i).get_locked()
         )
         self.coordinate_names = tuple(c.getName() for c in self.coordinates)
+
+        position_cutoff_parameters = [
+            f'position_cutoffs_hz.{name}' for name in self.coordinate_names]
+        velocity_cutoff_parameters = [
+            f'velocity_cutoffs_hz.{name}' for name in self.coordinate_names]
+        
+        for parameter in position_cutoff_parameters + velocity_cutoff_parameters:
+            self.declare_parameter(parameter, 0.0)
+        self.position_filter = LowPassFilter([
+            self.get_parameter(name).value for name in position_cutoff_parameters])
+        self.velocity_filter = LowPassFilter([
+            self.get_parameter(name).value for name in velocity_cutoff_parameters])
 
         # free coordinates within configured limits for IKsolver
         for coordinate in self.coordinates:
@@ -98,9 +143,11 @@ class PoseEstimator(Node):
         self.frame_count += 1
 
         if len(people) >= 1:
-            coordinates = self.coordinates_from_people(people)
+            coordinates = self.coordinates_from_people(people, timestamp_ns)
 
             if coordinates is not None:
+                # apply low-pass filter to the joint angles
+                coordinates = self.position_filter.update(coordinates, timestamp_ns)
                 velocities = self.calculate_velocity(coordinates, timestamp_ns)
                 
                 if velocities is not None:
@@ -116,7 +163,7 @@ class PoseEstimator(Node):
         output.header = msg.header
         self.image_pub.publish(output)
 
-    def coordinates_from_people(self, people):
+    def coordinates_from_people(self, people, timestamp_ns):
 
         # we only estimate for the first person detected in the image
         points = np.asarray(people[0]['keypoints_3d'], dtype=float)
@@ -127,6 +174,9 @@ class PoseEstimator(Node):
         # reconstruct ground-frame targets from the model's current shoulder.
         origin = np.array([shoulder[i] for i in range(3)])
         points = points[[8, 10, 117, 129]]
+
+        # apply a low-pass filter to the landmark positions
+        points = self.landmark_filter.update(points, timestamp_ns)
         targets = origin + points @ self.alignment.T
 
         # create a table of the targets required by the IKsolver
@@ -164,6 +214,7 @@ class PoseEstimator(Node):
         if self.previous_coordinates is None:
             self.previous_coordinates = coordinates.copy()
             self.previous_timestamp_ns = timestamp_ns
+            self.velocity_filter.reset()
             return None
 
         dt = (timestamp_ns - self.previous_timestamp_ns) * 1e-9
@@ -174,13 +225,15 @@ class PoseEstimator(Node):
             )
             self.previous_coordinates = coordinates.copy()
             self.previous_timestamp_ns = timestamp_ns
+            self.velocity_filter.reset()
             return None
 
-        # noise will be amplified
         velocities = (coordinates - self.previous_coordinates) / dt
         self.previous_coordinates = coordinates.copy()
         self.previous_timestamp_ns = timestamp_ns
-        return velocities
+        
+        # apply low-pass filter to the joint velocities
+        return self.velocity_filter.update(velocities, timestamp_ns)
 
 
 def main(args=None):
