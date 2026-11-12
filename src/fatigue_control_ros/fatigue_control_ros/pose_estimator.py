@@ -51,9 +51,13 @@ class PoseEstimator(Node):
         # free coordinates within configured limits for IKsolver
         for coordinate in self.coordinates:
             coordinate.setClamped(self.state, True)
+
         self.previous = np.array([
             coordinate.getValue(self.state) for coordinate in self.coordinates
         ])
+        self.previous_coordinates = None
+        self.previous_timestamp_ns = None
+
         self.alignment = CAMERA_TO_OPENSIM
 
         self.joint_state_pub = self.create_publisher(
@@ -94,22 +98,25 @@ class PoseEstimator(Node):
         self.frame_count += 1
 
         if len(people) >= 1:
-            coordinates = self.estimate_from_people(people)
+            coordinates = self.coordinates_from_people(people)
 
             if coordinates is not None:
-                joint_state = JointState()
-                joint_state.header = msg.header
-                joint_state.name = list(self.coordinate_names)
-                joint_state.position = coordinates.tolist()
-                self.joint_state_pub.publish(joint_state)
-
+                velocities = self.calculate_velocity(coordinates, timestamp_ns)
+                
+                if velocities is not None:
+                    joint_state = JointState()
+                    joint_state.header = msg.header
+                    joint_state.name = list(self.coordinate_names)
+                    joint_state.position = coordinates.tolist()
+                    joint_state.velocity = velocities.tolist()
+                    self.joint_state_pub.publish(joint_state)
 
         overlay = self.pipeline.draw_overlay(image, people)
         output = self.bridge.cv2_to_imgmsg(overlay, encoding='bgr8')
         output.header = msg.header
         self.image_pub.publish(output)
 
-    def estimate_from_people(self, people):
+    def coordinates_from_people(self, people):
 
         # we only estimate for the first person detected in the image
         points = np.asarray(people[0]['keypoints_3d'], dtype=float)
@@ -142,6 +149,7 @@ class PoseEstimator(Node):
         try:
             solver.assemble(self.state)
         except RuntimeError:
+            # return previous coordinates if the IK solver fails
             for coordinate, value in zip(self.coordinates, self.previous):
                 coordinate.setValue(self.state, float(value), False)
             return None
@@ -149,7 +157,31 @@ class PoseEstimator(Node):
         self.previous = np.array([
             coordinate.getValue(self.state) for coordinate in self.coordinates
         ])
+
         return self.previous.copy()
+
+    def calculate_velocity(self, coordinates, timestamp_ns):
+        if self.previous_coordinates is None:
+            self.previous_coordinates = coordinates.copy()
+            self.previous_timestamp_ns = timestamp_ns
+            return None
+
+        dt = (timestamp_ns - self.previous_timestamp_ns) * 1e-9
+        if dt <= 0.0:
+            self.get_logger().warning(
+                'Ignoring pose with non-increasing timestamp',
+                throttle_duration_sec=5.0,
+            )
+            self.previous_coordinates = coordinates.copy()
+            self.previous_timestamp_ns = timestamp_ns
+            return None
+
+        # noise will be amplified
+        velocities = (coordinates - self.previous_coordinates) / dt
+        self.previous_coordinates = coordinates.copy()
+        self.previous_timestamp_ns = timestamp_ns
+        return velocities
+
 
 def main(args=None):
     rclpy.init(args=args)
