@@ -8,8 +8,10 @@ from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import JointState
+from fatigue_control_msgs.msg import MuscleState
 
 from visuals.live_joint_velocity import LiveJointVelocityPlot
+from visuals.live_muscle_fatigue import LiveMuscleFatiguePlot
 
 
 def configure_simbody(osim):
@@ -31,7 +33,9 @@ class ModelViewer(Node):
         super().__init__('model_viewer')
         self.declare_parameter('model_path', '')
         self.declare_parameter(
-            'joint_states_topic', '/pose_estimator/joint_states')
+            'joint_states_topic', '/human_state_estimator/joint_states')
+        self.declare_parameter(
+            'muscle_states_topic', '/human_state_estimator/muscle_states')
         model_path = self.get_parameter('model_path').value
         if not model_path:
             raise ValueError('model_path must be provided for visualization')
@@ -54,16 +58,45 @@ class ModelViewer(Node):
         self.model.realizePosition(self.state)
         self.model.getVisualizer().show(self.state)
         self.velocity_plot = LiveJointVelocityPlot(self.coordinates)
-        self.plot_timer = self.create_timer(1.0 / 30.0, self.velocity_plot.refresh)
+        self.fatigue_plot = LiveMuscleFatiguePlot()
+        self.plot_timer = self.create_timer(1.0 / 30.0, self.refresh_plots)
         self.subscription = self.create_subscription(
             JointState,
             self.get_parameter('joint_states_topic').value,
             self.joint_state_callback,
             qos_profile_sensor_data,
         )
+        self.muscle_subscription = self.create_subscription(
+            MuscleState,
+            self.get_parameter('muscle_states_topic').value,
+            self.muscle_state_callback,
+            qos_profile_sensor_data,
+        )
         self.get_logger().info(
             f'Viewing {model_path}; '
-            f'listening on {self.subscription.topic_name}')
+            f'listening on {self.subscription.topic_name} and '
+            f'{self.muscle_subscription.topic_name}')
+
+    def refresh_plots(self):
+        self.velocity_plot.refresh()
+        self.fatigue_plot.refresh()
+
+    def muscle_state_callback(self, msg):
+        """Plot finite fatigue fractions with one value per unique muscle name."""
+        if (not msg.name or len(msg.name) != len(msg.fatigue)
+                or len(set(msg.name)) != len(msg.name)
+                or not all(math.isfinite(value) and 0.0 <= value <= 1.0
+                           for value in msg.fatigue)):
+            self.get_logger().warning(
+                'Ignoring MuscleState: need unique names and fatigue in [0, 1]',
+                throttle_duration_sec=5.0,
+            )
+            return
+        timestamp_ns = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+        if timestamp_ns == 0:
+            timestamp_ns = self.get_clock().now().nanoseconds
+        self.fatigue_plot.append(
+            timestamp_ns * 1e-9, dict(zip(msg.name, msg.fatigue)))
 
     def joint_state_callback(self, msg):
         """Apply named positions in OpenSim units (radians or metres)."""
@@ -112,7 +145,10 @@ class ModelViewer(Node):
             try:
                 self.velocity_plot.close()
             finally:
-                result = super().destroy_node()
+                try:
+                    self.fatigue_plot.close()
+                finally:
+                    result = super().destroy_node()
         return result
 
 

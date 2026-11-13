@@ -5,7 +5,10 @@
   <arg name="framerate" default="30.0"/>
   <arg name="pixel_format" default="mjpeg2rgb"/>
   <arg name="model_path"
-       default="musculoskeletal_models/tsm_hand_4DOF/tsm_4DOF_arm26_hand_scaled.osim"/>
+       default="musculoskeletal_models/tsm_hand_4DOF/tsm_hand_4DOF.osim"/>
+  <arg name="dataset_path"
+       default="results/tsm_hand_4DOF/datasets/msk_dataset_p1e4_m1_d1_fx0_fy0_fz20_regular.npz"/>
+  <arg name="muscles" default="['DeltoideusScapula_P']"/>
   <arg name="use_model_viewer" default="true"/>
 
   <arg name="landmark_z_cutoff_hz" default="0.5"/>
@@ -28,10 +31,12 @@
   </include>
 
   <node pkg="fatigue_control_ros"
-        exec="pose_estimator"
-        name="pose_estimator"
+        exec="human_state_estimator"
+        name="human_state_estimator"
         output="screen">
     <param name="model_path" value="$(var model_path)"/>
+    <param name="dataset_path" value="$(var dataset_path)"/>
+    <param name="muscles" value="$(var muscles)" type="yaml"/>
     <param name="landmark_z_cutoff_hz" value="$(var landmark_z_cutoff_hz)"/>
     <param name="landmark_xy_cutoff_hz" value="$(var landmark_xy_cutoff_hz)"/>
     <param name="position_cutoffs_hz.axial_rot" value="$(var position_axial_rot_cutoff_hz)"/>
@@ -50,5 +55,7 @@
         output="screen"
         if="$(var use_model_viewer)">
     <param name="model_path" value="$(var model_path)"/>
+    <param name="joint_states_topic" value="/human_state_estimator/joint_states"/>
+    <param name="muscle_states_topic" value="/human_state_estimator/muscle_states"/>
   </node>
 </launch>

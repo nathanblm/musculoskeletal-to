@@ -17,9 +17,16 @@ setup(
             glob('launch/*.launch.py') + glob('launch/*.launch.xml')),
         (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages',
             ['../../code/mmpose_pipeline.py']),
+        (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/code',
+            glob('../../code/*.py')),
+        (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/rmr_solver',
+            glob('../../rmr_solver/*.py')),
+        (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/code/visuals',
+            glob('../../code/visuals/*.py')),
         (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/visuals',
             ['../../code/visuals/__init__.py',
-             '../../code/visuals/live_joint_velocity.py']),
+             '../../code/visuals/live_joint_velocity.py',
+             '../../code/visuals/live_muscle_fatigue.py']),
         (f'lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages/rtmpose3d',
             glob('../../code/rtmpose3d/*.py')
             + ['../../code/rtmpose3d/LICENSE', '../../code/rtmpose3d/UPSTREAM.md']),
@@ -39,7 +46,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'pose_estimator = fatigue_control_ros.pose_estimator:main',
+            'human_state_estimator = fatigue_control_ros.human_state_estimator:main',
             'model_viewer = fatigue_control_ros.model_viewer:main',
         ],
     },

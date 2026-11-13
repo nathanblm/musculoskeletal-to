@@ -50,6 +50,30 @@ MODEL_CONFIG = {
         "agonists": ["BIC_long", "BIC_brevis"],
         "antagonists": ["TRIlong"],
     },
+    "tsm_hand_3DOF": {
+        "model_path": "musculoskeletal_models/tsm_hand_3DOF/tsm_hand_3DOF.osim",
+        "dataset_path": "results/tsm_hand_3DOF/datasets/msk_dataset_p1e3_m1_d1_left_regular.npz",
+        "f_dynamics_func_path": "musculoskeletal_models/tsm_hand_3DOF/fd_dynamics/F.casadi",
+        "i_dynamics_func_path": "musculoskeletal_models/tsm_hand_3DOF/inv_dynamics/F.so",
+        "ocp_result_path": "results/tsm_hand_3DOF/ocp/results/test.npz",
+        "ocp_validation_path": "results/tsm_hand_3DOF/ocp/validation/test.npz",
+        "interpolants_path": "results/tsm_hand_3DOF/datasets/interpolants.npz",
+        "reference_marker": "ac",
+        "agonists": ["BIC_long", "BIC_brevis"],
+        "antagonists": ["TRIlong"],
+    },
+    "tsm_hand_4DOF": {
+        "model_path": "musculoskeletal_models/tsm_hand_4DOF/tsm_hand_4DOF.osim",
+        "dataset_path": "results/tsm_hand_4DOF/datasets/msk_dataset_p1e3_m1_d1_left_regular.npz",
+        "f_dynamics_func_path": "musculoskeletal_models/tsm_hand_4DOF/fd_dynamics/F.casadi",
+        "i_dynamics_func_path": "musculoskeletal_models/tsm_hand_4DOF/inv_dynamics/F.so",
+        "ocp_result_path": "results/tsm_hand_4DOF/ocp/results/test.npz",
+        "ocp_validation_path": "results/tsm_hand_4DOF/ocp/validation/test.npz",
+        "interpolants_path": "results/tsm_hand_4DOF/datasets/interpolants.npz",
+        "reference_marker": "ac",
+        "agonists": ["BIC_long", "BIC_brevis"],
+        "antagonists": ["TRIlong"],
+    },
 }
 
 

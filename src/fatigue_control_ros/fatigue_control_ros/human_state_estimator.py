@@ -3,11 +3,14 @@ import numpy as np
 import opensim as osim
 import rclpy
 from rclpy.node import Node
+from rclpy.parameter import Parameter
 from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import JointState
+from fatigue_control_msgs.msg import MuscleState
 
 from mmpose_pipeline import MMPosePipeline, default_model_settings
+from code.muscle_state_estimator import MuscleStateEstimator
 
 CAMERA_TO_OPENSIM = np.array([
     [0.0, 0.0, -1.0],
@@ -42,13 +45,16 @@ class LowPassFilter:
         return self.value.copy()
 
 
-class PoseEstimator(Node):
+class HumanStateEstimator(Node):
 
     def __init__(self):
-        super().__init__('pose_estimator')
+        super().__init__('human_state_estimator')
 
         self.declare_parameter('image_topic', '/camera/image_raw')
         self.declare_parameter('model_path', '')
+        self.declare_parameter('dataset_path', '')
+        self.declare_parameter('force_index', 0)
+        self.declare_parameter('muscles', Parameter.Type.STRING_ARRAY)
         self.declare_parameter('landmark_z_cutoff_hz')
         self.declare_parameter('landmark_xy_cutoff_hz')
 
@@ -68,6 +74,15 @@ class PoseEstimator(Node):
             raise ValueError('model_path must be provided for joint-state output')
         
         self.model = osim.Model(str(model_path))
+        dataset_path = self.get_parameter('dataset_path').value
+        if not dataset_path:
+            raise ValueError('dataset_path must be provided for muscle-state output')
+        self.muscle_estimator = MuscleStateEstimator(
+            self.model,
+            dataset_path,
+            muscles=self.get_parameter_or('muscles').value or None,
+            force_index=self.get_parameter('force_index').value,
+        )
         self.state = self.model.initSystem()
         self.markers = tuple(
             self.model.getMarkerSet().get(name)
@@ -111,6 +126,12 @@ class PoseEstimator(Node):
             qos_profile_sensor_data
         )
 
+        self.muscle_state_pub = self.create_publisher(
+            MuscleState,
+            '~/muscle_states',
+            qos_profile_sensor_data,
+        )
+
         self.image_pub = self.create_publisher(
             Image,
             '~/image',
@@ -128,7 +149,7 @@ class PoseEstimator(Node):
         )
 
         self.get_logger().info(
-            'Ready: publishing ~/joint_states and ~/image')
+            'Ready: publishing ~/joint_states, ~/muscle_states, and ~/image')
 
     def image_callback(self, msg):
 
@@ -157,6 +178,22 @@ class PoseEstimator(Node):
                     joint_state.position = coordinates.tolist()
                     joint_state.velocity = velocities.tolist()
                     self.joint_state_pub.publish(joint_state)
+                    try:
+                        _, forces, fatigue = self.muscle_estimator.update(
+                            coordinates,
+                            timestamp_ns,
+                        )
+                    except (RuntimeError, ValueError) as error:
+                        self.get_logger().error(
+                            f'Cannot estimate muscle state: {error}')
+                    else:
+                        muscle_state = MuscleState()
+                        muscle_state.header = msg.header
+                        muscle_state.name = list(
+                            self.muscle_estimator.muscles.names)
+                        muscle_state.force = forces.tolist()
+                        muscle_state.fatigue = fatigue.tolist()
+                        self.muscle_state_pub.publish(muscle_state)
 
         overlay = self.pipeline.draw_overlay(image, people)
         output = self.bridge.cv2_to_imgmsg(overlay, encoding='bgr8')
@@ -240,7 +277,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = None
     try:
-        node = PoseEstimator()
+        node = HumanStateEstimator()
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

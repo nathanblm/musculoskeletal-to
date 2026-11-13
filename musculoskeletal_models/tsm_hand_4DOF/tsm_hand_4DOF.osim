@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <OpenSimDocument Version="40000">
-	<Model name="tsm_4DOF_arm26_hand_scaled">
+	<Model name="tsm_hand_4DOF">
 		<!--The model's ground reference frame.-->
 		<Ground name="ground">
 			<!--The geometry used to display the axes of this Frame.-->
@@ -5011,6 +5011,37 @@
 					<!--The maximum generalized force produced by this actuator.-->
 					<optimal_force>1</optimal_force>
 				</CoordinateActuator>
+				<PrescribedForce name="interaction_force">
+					<appliesForce>true</appliesForce>
+					<socket_frame>/bodyset/hand</socket_frame>
+					<pointIsGlobal>false</pointIsGlobal>
+					<forceIsGlobal>false</forceIsGlobal>
+					<FunctionSet name="forceFunctions">
+						<objects>
+							<Constant><value>0</value></Constant>
+							<Constant><value>0</value></Constant>
+							<Constant><value>0</value></Constant>
+						</objects>
+						<groups />
+					</FunctionSet>
+					<!-- Palm center: halfway from wrist to the index/pinky MCP midpoint, in hand coordinates (m). -->
+					<FunctionSet name="pointFunctions">
+						<objects>
+							<Constant><value>-0.0044818265752422917</value></Constant>
+							<Constant><value>-0.040391465749820096</value></Constant>
+							<Constant><value>-7.2285064573714922e-05</value></Constant>
+						</objects>
+						<groups />
+					</FunctionSet>
+					<FunctionSet name="torqueFunctions">
+						<objects>
+							<Constant><value>0</value></Constant>
+							<Constant><value>0</value></Constant>
+							<Constant><value>0</value></Constant>
+						</objects>
+						<groups />
+					</FunctionSet>
+				</PrescribedForce>
 			</objects>
 			<groups />
 		</ForceSet>
@@ -5055,6 +5086,12 @@
 					<!--The fixed location of the station expressed in its parent frame.-->
 					<location>0 0 0</location>
 					<!--Flag (true or false) specifying whether the marker is fixed in its parent frame during the marker placement step of scaling.  If false, the marker is free to move within its parent Frame to match its experimental counterpart.-->
+					<fixed>true</fixed>
+				</Marker>
+				<Marker name="endpoint">
+					<!-- Application point of interaction_force, fixed in hand coordinates (m). -->
+					<socket_parent_frame>/bodyset/hand</socket_parent_frame>
+					<location>-0.0044818265752422917 -0.040391465749820096 -7.2285064573714922e-05</location>
 					<fixed>true</fixed>
 				</Marker>
 			</objects>
