@@ -5,8 +5,12 @@ tests/
 /results/*
 
 install/
-log/
+devel/
+logs/
 build/
+.catkin_tools/
 .venvs/
 
 .pytest_cache/
+
+iiwa_impedance_control/

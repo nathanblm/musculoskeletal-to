@@ -1,14 +1,9 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.0.2)
 project(fatigue_control_msgs)
 
-find_package(ament_cmake REQUIRED)
-find_package(rosidl_default_generators REQUIRED)
-find_package(std_msgs REQUIRED)
+find_package(catkin REQUIRED COMPONENTS message_generation std_msgs)
 
-rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/MuscleState.msg"
-  DEPENDENCIES std_msgs
-)
+add_message_files(FILES MuscleState.msg)
+generate_messages(DEPENDENCIES std_msgs)
 
-ament_export_dependencies(rosidl_default_runtime)
-ament_package()
+catkin_package(CATKIN_DEPENDS message_runtime std_msgs)

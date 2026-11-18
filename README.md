@@ -1,5 +1,8 @@
 # Pipeline demo
 
+For the ROS Noetic camera, human-state estimator, and OpenSim viewer, see the
+[ROS 1 setup and launch instructions](src/fatigue_control_ros/README.md).
+
 From the repository root, activate your project environment and run:
 
 ```bash

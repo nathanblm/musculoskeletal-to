@@ -1,15 +1,12 @@
 from cv_bridge import CvBridge, CvBridgeError
 import numpy as np
 import opensim as osim
-import rclpy
-from rclpy.node import Node
-from rclpy.parameter import Parameter
-from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
+import rospy
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import JointState
 from fatigue_control_msgs.msg import MuscleState
 
-from mmpose_pipeline import MMPosePipeline, default_model_settings
+from code.mmpose_pipeline import MMPosePipeline, default_model_settings
 from code.muscle_state_estimator import MuscleStateEstimator
 
 CAMERA_TO_OPENSIM = np.array([
@@ -45,43 +42,33 @@ class LowPassFilter:
         return self.value.copy()
 
 
-class HumanStateEstimator(Node):
+class HumanStateEstimator:
 
     def __init__(self):
-        super().__init__('human_state_estimator')
-
-        self.declare_parameter('image_topic', '/camera/image_raw')
-        self.declare_parameter('model_path', '')
-        self.declare_parameter('dataset_path', '')
-        self.declare_parameter('force_index', 0)
-        self.declare_parameter('muscles', Parameter.Type.STRING_ARRAY)
-        self.declare_parameter('landmark_z_cutoff_hz')
-        self.declare_parameter('landmark_xy_cutoff_hz')
-
-        self.landmark_filter = LowPassFilter(
-            [self.get_parameter('landmark_xy_cutoff_hz').value] * 2
-            + [self.get_parameter('landmark_z_cutoff_hz').value])
+        self.landmark_filter = LowPassFilter([
+            rospy.get_param('~landmark_xy_cutoff_hz', 1.01),
+            rospy.get_param('~landmark_xy_cutoff_hz', 1.01),
+            rospy.get_param('~landmark_z_cutoff_hz', 0.5),
+        ])
+        model_path = rospy.get_param('~model_path', '')
+        dataset_path = rospy.get_param('~dataset_path', '')
+        if not model_path or not dataset_path:
+            raise ValueError('~model_path and ~dataset_path must be provided')
 
         settings = default_model_settings()
-        self.get_logger().info(
+        rospy.loginfo(
             f"Loading RTMDet and RTMW3D whole-body pose on {settings['device']}")
         
         self.pipeline = MMPosePipeline(settings)
         self.bridge = CvBridge()
         self.frame_count = 0
-        model_path = self.get_parameter('model_path').value
-        if not model_path:
-            raise ValueError('model_path must be provided for joint-state output')
         
         self.model = osim.Model(str(model_path))
-        dataset_path = self.get_parameter('dataset_path').value
-        if not dataset_path:
-            raise ValueError('dataset_path must be provided for muscle-state output')
         self.muscle_estimator = MuscleStateEstimator(
             self.model,
             dataset_path,
-            muscles=self.get_parameter_or('muscles').value or None,
-            force_index=self.get_parameter('force_index').value,
+            muscles=rospy.get_param('~muscles', []) or None,
+            force_index=rospy.get_param('~force_index', 0),
         )
         self.state = self.model.initSystem()
         self.markers = tuple(
@@ -96,17 +83,14 @@ class HumanStateEstimator(Node):
         )
         self.coordinate_names = tuple(c.getName() for c in self.coordinates)
 
-        position_cutoff_parameters = [
-            f'position_cutoffs_hz.{name}' for name in self.coordinate_names]
-        velocity_cutoff_parameters = [
-            f'velocity_cutoffs_hz.{name}' for name in self.coordinate_names]
-        
-        for parameter in position_cutoff_parameters + velocity_cutoff_parameters:
-            self.declare_parameter(parameter, 0.0)
         self.position_filter = LowPassFilter([
-            self.get_parameter(name).value for name in position_cutoff_parameters])
+            rospy.get_param('~position_cutoffs_hz/' + name, 0.0)
+            for name in self.coordinate_names
+        ])
         self.velocity_filter = LowPassFilter([
-            self.get_parameter(name).value for name in velocity_cutoff_parameters])
+            rospy.get_param('~velocity_cutoffs_hz/' + name, 0.0)
+            for name in self.coordinate_names
+        ])
 
         # free coordinates within configured limits for IKsolver
         for coordinate in self.coordinates:
@@ -120,46 +104,28 @@ class HumanStateEstimator(Node):
 
         self.alignment = CAMERA_TO_OPENSIM
 
-        self.joint_state_pub = self.create_publisher(
-            JointState,
-            '~/joint_states',
-            qos_profile_sensor_data
+        self.joint_state_pub = rospy.Publisher(
+            '~joint_states', JointState, queue_size=1)
+        self.muscle_state_pub = rospy.Publisher(
+            '~muscle_states', MuscleState, queue_size=1)
+        self.image_pub = rospy.Publisher('~image', Image, queue_size=1)
+        self.subscription = rospy.Subscriber(
+            rospy.get_param('~image_topic', '/camera/webcam/image_raw'),
+            Image, self.image_callback, queue_size=1,
+            buff_size=16 * 1024 * 1024, tcp_nodelay=True,
         )
-
-        self.muscle_state_pub = self.create_publisher(
-            MuscleState,
-            '~/muscle_states',
-            qos_profile_sensor_data,
-        )
-
-        self.image_pub = self.create_publisher(
-            Image,
-            '~/image',
-            qos_profile_sensor_data
-        )
-
-        self.subscription = self.create_subscription(
-            Image,
-            self.get_parameter('image_topic').value,
-            self.image_callback,
-            QoSProfile(
-                depth=1, 
-                reliability=ReliabilityPolicy.BEST_EFFORT
-            ),
-        )
-
-        self.get_logger().info(
-            'Ready: publishing ~/joint_states, ~/muscle_states, and ~/image')
+        rospy.loginfo(
+            'Ready: publishing ~joint_states, ~muscle_states, and ~image')
 
     def image_callback(self, msg):
 
         try:
             image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
         except CvBridgeError as error:
-            self.get_logger().error(f'Cannot decode image: {error}')
+            rospy.logerr(f'Cannot decode image: {error}')
             return
 
-        timestamp_ns = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+        timestamp_ns = msg.header.stamp.to_nsec()
         people = self.pipeline.process(image, timestamp_ns)
         self.frame_count += 1
 
@@ -184,7 +150,7 @@ class HumanStateEstimator(Node):
                             timestamp_ns,
                         )
                     except (RuntimeError, ValueError) as error:
-                        self.get_logger().error(
+                        rospy.logerr(
                             f'Cannot estimate muscle state: {error}')
                     else:
                         muscle_state = MuscleState()
@@ -256,10 +222,7 @@ class HumanStateEstimator(Node):
 
         dt = (timestamp_ns - self.previous_timestamp_ns) * 1e-9
         if dt <= 0.0:
-            self.get_logger().warning(
-                'Ignoring pose with non-increasing timestamp',
-                throttle_duration_sec=5.0,
-            )
+            rospy.logwarn_throttle(5.0, 'Ignoring pose with non-increasing timestamp')
             self.previous_coordinates = coordinates.copy()
             self.previous_timestamp_ns = timestamp_ns
             self.velocity_filter.reset()
@@ -273,19 +236,13 @@ class HumanStateEstimator(Node):
         return self.velocity_filter.update(velocities, timestamp_ns)
 
 
-def main(args=None):
-    rclpy.init(args=args)
-    node = None
+def main():
+    rospy.init_node('human_state_estimator')
     try:
         node = HumanStateEstimator()
-        rclpy.spin(node)
-    except KeyboardInterrupt:
+        rospy.spin()
+    except rospy.ROSInterruptException:
         pass
-    finally:
-        if node is not None:
-            node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
 
 
 if __name__ == '__main__':

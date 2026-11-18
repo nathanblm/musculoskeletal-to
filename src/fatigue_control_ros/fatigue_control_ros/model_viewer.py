@@ -2,16 +2,15 @@ import math
 import os
 from pathlib import Path
 import sys
+from collections import deque
+from threading import Lock
 
-import rclpy
-from rclpy.executors import ExternalShutdownException
-from rclpy.node import Node
-from rclpy.qos import qos_profile_sensor_data
+import rospy
 from sensor_msgs.msg import JointState
 from fatigue_control_msgs.msg import MuscleState
 
-from visuals.live_joint_velocity import LiveJointVelocityPlot
-from visuals.live_muscle_fatigue import LiveMuscleFatiguePlot
+from code.visuals.live_joint_velocity import LiveJointVelocityPlot
+from code.visuals.live_muscle_fatigue import LiveMuscleFatiguePlot
 
 
 def configure_simbody(osim):
@@ -27,16 +26,12 @@ def configure_simbody(osim):
                     return
 
 
-class ModelViewer(Node):
+class ModelViewer:
 
     def __init__(self):
-        super().__init__('model_viewer')
-        self.declare_parameter('model_path', '')
-        self.declare_parameter(
-            'joint_states_topic', '/human_state_estimator/joint_states')
-        self.declare_parameter(
-            'muscle_states_topic', '/human_state_estimator/muscle_states')
-        model_path = self.get_parameter('model_path').value
+        self._pending = deque(maxlen=100)
+        self._pending_lock = Lock()
+        model_path = rospy.get_param('~model_path', '')
         if not model_path:
             raise ValueError('model_path must be provided for visualization')
         model_path = Path(model_path).expanduser().resolve(strict=True)
@@ -59,63 +54,70 @@ class ModelViewer(Node):
         self.model.getVisualizer().show(self.state)
         self.velocity_plot = LiveJointVelocityPlot(self.coordinates)
         self.fatigue_plot = LiveMuscleFatiguePlot()
-        self.plot_timer = self.create_timer(1.0 / 30.0, self.refresh_plots)
-        self.subscription = self.create_subscription(
-            JointState,
-            self.get_parameter('joint_states_topic').value,
-            self.joint_state_callback,
-            qos_profile_sensor_data,
+        self.subscription = rospy.Subscriber(
+            rospy.get_param('~joint_states_topic', '/human_state_estimator/joint_states'),
+            JointState, self.joint_state_callback, queue_size=1, tcp_nodelay=True,
         )
-        self.muscle_subscription = self.create_subscription(
-            MuscleState,
-            self.get_parameter('muscle_states_topic').value,
-            self.muscle_state_callback,
-            qos_profile_sensor_data,
+        self.muscle_subscription = rospy.Subscriber(
+            rospy.get_param('~muscle_states_topic', '/human_state_estimator/muscle_states'),
+            MuscleState, self.muscle_state_callback, queue_size=1, tcp_nodelay=True,
         )
-        self.get_logger().info(
-            f'Viewing {model_path}; '
-            f'listening on {self.subscription.topic_name} and '
-            f'{self.muscle_subscription.topic_name}')
+        rospy.loginfo(
+            f'Viewing {model_path}; listening on '
+            f'{self.subscription.resolved_name} and '
+            f'{self.muscle_subscription.resolved_name}')
 
     def refresh_plots(self):
+        # rospy invokes subscribers on background threads. Apply model and GUI
+        # updates here, on the main thread, including when images stop arriving.
+        with self._pending_lock:
+            pending = list(self._pending)
+            self._pending.clear()
+        for kind, msg in pending:
+            if kind == 'joint':
+                self._apply_joint_state(msg)
+            else:
+                self._apply_muscle_state(msg)
         self.velocity_plot.refresh()
         self.fatigue_plot.refresh()
 
+    def joint_state_callback(self, msg):
+        with self._pending_lock:
+            self._pending.append(('joint', msg))
+
     def muscle_state_callback(self, msg):
+        with self._pending_lock:
+            self._pending.append(('muscle', msg))
+
+    def _apply_muscle_state(self, msg):
         """Plot finite fatigue fractions with one value per unique muscle name."""
         if (not msg.name or len(msg.name) != len(msg.fatigue)
                 or len(set(msg.name)) != len(msg.name)
                 or not all(math.isfinite(value) and 0.0 <= value <= 1.0
                            for value in msg.fatigue)):
-            self.get_logger().warning(
-                'Ignoring MuscleState: need unique names and fatigue in [0, 1]',
-                throttle_duration_sec=5.0,
-            )
+            rospy.logwarn_throttle(
+                5.0, 'Ignoring MuscleState: need unique names and fatigue in [0, 1]')
             return
-        timestamp_ns = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+        timestamp_ns = msg.header.stamp.to_nsec()
         if timestamp_ns == 0:
-            timestamp_ns = self.get_clock().now().nanoseconds
+            timestamp_ns = rospy.Time.now().to_nsec()
         self.fatigue_plot.append(
             timestamp_ns * 1e-9, dict(zip(msg.name, msg.fatigue)))
 
-    def joint_state_callback(self, msg):
+    def _apply_joint_state(self, msg):
         """Apply named positions in OpenSim units (radians or metres)."""
         if (not msg.name or len(msg.name) != len(msg.position)
                 or len(set(msg.name)) != len(msg.name)
                 or not all(math.isfinite(value) for value in msg.position)):
-            self.get_logger().warning(
-                'Ignoring JointState: need unique names and finite positions',
-                throttle_duration_sec=5.0,
-            )
+            rospy.logwarn_throttle(
+                5.0, 'Ignoring JointState: need unique names and finite positions')
             return
         updates = [(self.coordinates[name], value)
                    for name, value in zip(msg.name, msg.position)
                    if name in self.coordinates]
         if not updates:
-            self.get_logger().warning(
-                'JointState has no matching unlocked OpenSim coordinates',
-                throttle_duration_sec=5.0,
-            )
+            rospy.logwarn_throttle(
+                5.0, 'JointState has no matching unlocked OpenSim coordinates')
             return
         for coordinate, value in updates:
             coordinate.setValue(self.state, float(value), False)
@@ -125,47 +127,43 @@ class ModelViewer(Node):
         if msg.velocity:
             if (len(msg.velocity) != len(msg.name)
                     or not all(math.isfinite(value) for value in msg.velocity)):
-                self.get_logger().warning(
-                    'Ignoring velocities: need one finite velocity per joint name',
-                    throttle_duration_sec=5.0,
-                )
+                rospy.logwarn_throttle(
+                    5.0, 'Ignoring velocities: need one finite velocity per joint name')
                 return
-            timestamp_ns = msg.header.stamp.sec * 10**9 + msg.header.stamp.nanosec
+            timestamp_ns = msg.header.stamp.to_nsec()
             if timestamp_ns == 0:
-                timestamp_ns = self.get_clock().now().nanoseconds
+                timestamp_ns = rospy.Time.now().to_nsec()
             self.velocity_plot.append(timestamp_ns * 1e-9, {
                 name: value for name, value in zip(msg.name, msg.velocity)
                 if name in self.coordinates
             })
 
-    def destroy_node(self):
+    def close(self):
+        self.subscription.unregister()
+        self.muscle_subscription.unregister()
         try:
             self.visualizer.shutdown()
         finally:
             try:
                 self.velocity_plot.close()
             finally:
-                try:
-                    self.fatigue_plot.close()
-                finally:
-                    result = super().destroy_node()
-        return result
+                self.fatigue_plot.close()
 
 
-def main(args=None):
-    """Run the model viewer until ROS shuts down."""
-    rclpy.init(args=args)
+def main():
+    """Service the visualizer on the main thread until ROS shuts down."""
+    rospy.init_node('model_viewer')
     node = None
     try:
         node = ModelViewer()
-        rclpy.spin(node)
-    except (KeyboardInterrupt, ExternalShutdownException):
+        while not rospy.is_shutdown():
+            node.refresh_plots()
+            rospy.rostime.wallsleep(1.0 / 30.0)
+    except (KeyboardInterrupt, rospy.ROSInterruptException):
         pass
     finally:
         if node is not None:
-            node.destroy_node()
-        if rclpy.ok():
-            rclpy.shutdown()
+            node.close()
 
 
 if __name__ == '__main__':
