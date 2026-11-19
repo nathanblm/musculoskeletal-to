@@ -1,0 +1,56 @@
+<launch>
+  <arg name="video_device" default="/dev/video0"/>
+  <arg name="image_width" default="1280"/>
+  <arg name="image_height" default="720"/>
+  <arg name="framerate" default="30"/>
+  <arg name="pixel_format" default="mjpeg"/>
+  <arg name="model_path"
+       default="$(find human_musculoskeletal)/../../../musculoskeletal_models/tsm_hand_4DOF/tsm_hand_4DOF.osim"/>
+  <arg name="dataset_path"
+       default="$(find human_musculoskeletal)/data/tsm_hand_4DOF_dataset.npz"/>
+  <arg name="muscles" default="['DeltoideusScapula_P', 'BIC_brevis']"/>
+  <arg name="use_camera" default="true"/>
+  <arg name="image_topic" default="/camera/webcam/image_raw"/>
+  <arg name="force_index" default="0"/>
+
+  <arg name="landmark_z_cutoff_hz" default="0.5"/>
+  <arg name="landmark_xy_cutoff_hz" default="1.01"/>
+  <arg name="position_axial_rot_cutoff_hz" default="0.50"/>
+  <arg name="position_plane_elv_cutoff_hz" default="0.0"/>
+  <arg name="position_shoulder_elv_cutoff_hz" default="0.0"/>
+  <arg name="position_elbow_flexion_cutoff_hz" default="0.0"/>
+  <arg name="velocity_axial_rot_cutoff_hz" default="0.65"/>
+  <arg name="velocity_plane_elv_cutoff_hz" default="0.65"/>
+  <arg name="velocity_shoulder_elv_cutoff_hz" default="0.65"/>
+  <arg name="velocity_elbow_flexion_cutoff_hz" default="0.65"/>
+
+  <include if="$(arg use_camera)" file="$(find human_musculoskeletal)/launch/webcam.launch">
+    <arg name="video_device" value="$(arg video_device)"/>
+    <arg name="image_width" value="$(arg image_width)"/>
+    <arg name="image_height" value="$(arg image_height)"/>
+    <arg name="framerate" value="$(arg framerate)"/>
+    <arg name="pixel_format" value="$(arg pixel_format)"/>
+  </include>
+
+  <node pkg="human_musculoskeletal"
+        type="human_state_publisher"
+        name="human_state_publisher"
+        output="screen">
+    <param name="model_path" value="$(arg model_path)"/>
+    <param name="dataset_path" value="$(arg dataset_path)"/>
+    <param name="image_topic" value="$(arg image_topic)"/>
+    <param name="force_index" value="$(arg force_index)" type="int"/>
+    <rosparam param="muscles" subst_value="true">$(arg muscles)</rosparam>
+    <param name="landmark_z_cutoff_hz" value="$(arg landmark_z_cutoff_hz)"/>
+    <param name="landmark_xy_cutoff_hz" value="$(arg landmark_xy_cutoff_hz)"/>
+    <param name="position_cutoffs_hz/axial_rot" value="$(arg position_axial_rot_cutoff_hz)"/>
+    <param name="position_cutoffs_hz/plane_elv" value="$(arg position_plane_elv_cutoff_hz)"/>
+    <param name="position_cutoffs_hz/shoulder_elv" value="$(arg position_shoulder_elv_cutoff_hz)"/>
+    <param name="position_cutoffs_hz/elbow_flexion" value="$(arg position_elbow_flexion_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz/axial_rot" value="$(arg velocity_axial_rot_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz/plane_elv" value="$(arg velocity_plane_elv_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz/shoulder_elv" value="$(arg velocity_shoulder_elv_cutoff_hz)"/>
+    <param name="velocity_cutoffs_hz/elbow_flexion" value="$(arg velocity_elbow_flexion_cutoff_hz)"/>
+  </node>
+
+</launch>

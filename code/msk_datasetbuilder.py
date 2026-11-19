@@ -335,7 +335,7 @@ class MusculoskeletalDatasetBuilder:
         self.results.sample_fatigue_dominance = sample_fatigue_dominance
         return sample_fatigue_dominance
 
-    def save_msk_dataset(self, *, results_dir=None, tag=None, regular=True):
+    def save_msk_dataset(self, *, results_dir=None, tag=None, regular=True, portable=False):
         if results_dir is None:
             ROOT = Path(__file__).parent.parent
             results_dir = ROOT / "results" / self.model.getName() / "datasets"
@@ -352,7 +352,7 @@ class MusculoskeletalDatasetBuilder:
             f"msk_dataset_p{_scientific_int(self.inputs.joint_coordinates.shape[0])}"
             f"_m{self.inputs.force_magnitudes.shape[0]}"
             f"_d{self.inputs.force_directions.shape[0]}"
-            f"{'_' + tag if tag else ''}.npz"
+            f"{'_' + tag if tag else ''}{'_portable' if portable else ''}.npz"
         )
 
         output_path = results_dir / filename
@@ -361,6 +361,8 @@ class MusculoskeletalDatasetBuilder:
             samples=self.inputs,
             results=self.results,
         )
+        if portable:
+            return dataset.save_portable_npz(output_path)
         return dataset.save_npz(output_path)
 
     def create_visualizer(self, npz_path, *, endpoint_marker="endpoint"):
@@ -443,7 +445,7 @@ class MusculoskeletalDatasetBuilder:
 
 
 
-def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None, tag=None, regular=True):
+def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_directions=1, magnitude_min=20.0, magnitude_max=30.0, magnitudes=None, directions=None, tag=None, regular=True, portable=False):
     config = MODEL_CONFIG.get(model_name)
 
     model_path = Path(config["model_path"])
@@ -468,11 +470,13 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
             force = configured_magnitudes[0] * direction / np.linalg.norm(direction)
             saved_tag = _sampling_tag(tag or _force_label(force), regular)
             n_positions = n_samples ** len(msk_builder.info.joint_coordinate_names) if regular else n_samples
-            dataset_path = (
+            original_path = (
                 Path(__file__).resolve().parent.parent
                 / "results" / model_name / "datasets"
                 / f"msk_dataset_p{_scientific_int(n_positions)}_m1_d1_{saved_tag}.npz"
             )
+            dataset_path = (original_path.with_name(original_path.stem + "_portable.npz")
+                            if portable else original_path)
             if dataset_path.exists():
                 try:
                     MSKdataset.from_npz(dataset_path)
@@ -483,6 +487,16 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
                 else:
                     print(f"Loading existing dataset: {dataset_path}")
                     return dataset_path
+            if portable and original_path.exists():
+                try:
+                    dataset = MSKdataset.from_npz(original_path)
+                except AttributeError as error:
+                    if "FatigueParameters" not in str(error):
+                        raise
+                    print(f"Rebuilding legacy dataset: {original_path}")
+                else:
+                    print(f"Saving portable copy: {dataset_path}")
+                    return dataset.save_portable_npz(dataset_path)
 
     if regular:
         msk_builder.generate_regular_position_samples(n_samples_per_coordinate=n_samples)
@@ -510,7 +524,7 @@ def build_msk_dataset(model_name: str, *, n_samples=100000, n_magnitudes=1, n_di
         activation_dynamics=False,
     )
     msk_builder.compute_sample_fatigue_dominance()
-    return msk_builder.save_msk_dataset(tag=tag, regular=regular)
+    return msk_builder.save_msk_dataset(tag=tag, regular=regular, portable=portable)
 
 def build_validation_dataset(model_name: str, dataset_npz_path: str, ocp_result_npz_path, *, force_index=0, activation_dynamics=True, filter_succes=True):
     config = MODEL_CONFIG.get(model_name)
@@ -614,6 +628,12 @@ def overwrite_sample_dominance(model_name: str, dataset_npz_path: str, agonist: 
     msk_builder.save_msk_dataset(tag="left")
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Build a musculoskeletal dataset")
+    parser.add_argument("--portable", action="store_true",
+                        help="write a separate pickle-free _portable.npz dataset")
+    args = parser.parse_args()
 
     model_name = "tsm_hand_4DOF"
 
@@ -635,6 +655,7 @@ if __name__ == "__main__":
         magnitudes=[20.0],
         directions=[[0.0, 0.0, 1.0]],
         regular=True,
+        portable=args.portable,
     )
 
     #build_validation_dataset(

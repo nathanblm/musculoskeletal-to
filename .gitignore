@@ -13,5 +13,5 @@ build/
 
 .pytest_cache/
 
-iiwa_impedance_control/
-kuka_fri/
+ros_ws/src/iiwa_impedance_control/
+ros_ws/src/iiwa_ros/

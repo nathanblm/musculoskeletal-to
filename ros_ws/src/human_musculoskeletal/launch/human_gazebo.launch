@@ -1,0 +1,64 @@
+<launch>
+  <arg name="urdf" default="$(find human_musculoskeletal)/description/tsm_hand_4DOF/tsm_hand_4DOF_aCol.urdf"/>
+  <arg name="model_name" default="tsm_hand_4DOF"/>
+  <arg name="spawn_z" default="0.0"/>
+  <arg name="gui" default="true"/>
+  <arg name="paused" default="false"/>
+  <arg name="use_publisher" default="true"/>
+  <arg name="use_camera" default="true"/>
+  <arg name="joint_states_topic" default="/human/joint_states"/>
+  <arg name="muscle_states_topic" default="/human/muscle_states"/>
+
+  <arg name="video_device" default="/dev/video0"/>
+  <arg name="image_width" default="1280"/>
+  <arg name="image_height" default="720"/>
+  <arg name="framerate" default="30"/>
+  <arg name="pixel_format" default="mjpeg"/>
+  <arg name="image_topic" default="/camera/webcam/image_raw"/>
+  <arg name="model_path"
+       default="$(find human_musculoskeletal)/../../../musculoskeletal_models/tsm_hand_4DOF/tsm_hand_4DOF.osim"/>
+  <arg name="dataset_path"
+       default="$(find human_musculoskeletal)/data/tsm_hand_4DOF_dataset.npz"/>
+  <arg name="muscles" default="['DeltoideusScapula_P', 'BIC_brevis']"/>
+  <arg name="force_index" default="0"/>
+
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="use_sim_time" value="false"/>
+  </include>
+
+  <include file="$(find human_musculoskeletal)/launch/human_description.launch">
+    <arg name="urdf" value="$(arg urdf)"/>
+    <arg name="joint_states_topic" value="$(arg joint_states_topic)"/>
+  </include>
+
+  <node pkg="gazebo_ros" type="spawn_model" name="human_spawner" output="screen"
+        args="-urdf -model $(arg model_name) -param human_description -z $(arg spawn_z)"/>
+
+  <group if="$(arg use_publisher)">
+    <include file="$(find human_musculoskeletal)/launch/human_state_publisher.launch">
+      <arg name="use_camera" value="$(arg use_camera)"/>
+      <arg name="video_device" value="$(arg video_device)"/>
+      <arg name="image_width" value="$(arg image_width)"/>
+      <arg name="image_height" value="$(arg image_height)"/>
+      <arg name="framerate" value="$(arg framerate)"/>
+      <arg name="pixel_format" value="$(arg pixel_format)"/>
+      <arg name="image_topic" value="$(arg image_topic)"/>
+      <arg name="model_path" value="$(arg model_path)"/>
+      <arg name="dataset_path" value="$(arg dataset_path)"/>
+      <arg name="muscles" value="$(arg muscles)"/>
+      <arg name="force_index" value="$(arg force_index)"/>
+    </include>
+    <node pkg="human_musculoskeletal" type="gazebo_joint_state_bridge"
+          name="gazebo_joint_state_bridge" output="screen">
+      <param name="model_name" value="$(arg model_name)"/>
+      <param name="urdf_param" value="human_description"/>
+      <param name="joint_states_topic" value="$(arg joint_states_topic)"/>
+    </node>
+    <node pkg="human_musculoskeletal" type="gazebo_muscle_state_bridge"
+          name="gazebo_muscle_state_bridge" output="screen">
+      <param name="muscle_states_topic" value="$(arg muscle_states_topic)"/>
+    </node>
+  </group>
+</launch>

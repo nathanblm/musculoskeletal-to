@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Optional
 
@@ -320,14 +320,61 @@ class MSKdataset:
 
     @classmethod
     def from_npz(cls, path):
-        """Load a trusted archive containing a pickled MSKdataset."""
+        """Load a portable dataset or an older trusted builder archive."""
+        with np.load(path, allow_pickle=False) as archive:
+            if "format_version" in archive:
+                return cls._from_portable_archive(archive)
         with np.load(path, allow_pickle=True) as archive:
             return archive["dataset"].item()
+
+    @classmethod
+    def _from_portable_archive(cls, archive):
+        if int(archive["format_version"]) != 1:
+            raise ValueError("Unsupported musculoskeletal dataset format")
+
+        tuple_fields = {
+            "joint_coordinate_names", "muscle_names", "actuator_names",
+            "prescribed_force_names", "prescribed_force_indices",
+            "agonist_muscles", "antagonist_muscles",
+        }
+
+        def load_part(part_type, prefix):
+            values = {}
+            for field in fields(part_type):
+                key = f"{prefix}_{field.name}"
+                if key in archive:
+                    value = archive[key]
+                    values[field.name] = tuple(value.tolist()) if field.name in tuple_fields else value
+            return part_type(**values)
+
+        return cls(
+            info=load_part(ModelInfo, "info"),
+            samples=load_part(SampleInputs, "samples"),
+            results=load_part(SampleResults, "results"),
+        )
 
     def save_npz(self, path):
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(path, dataset=self)
+        return path
+
+    def save_portable_npz(self, path):
+        """Save data arrays without pickling this class or its module path."""
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        arrays = {"format_version": np.array(1, dtype=np.int64)}
+        for prefix, part in (("info", self.info), ("samples", self.samples),
+                             ("results", self.results)):
+            for field in fields(part):
+                value = getattr(part, field.name)
+                if value is None:
+                    continue
+                array = np.asarray(value)
+                if array.dtype.kind not in "biufUS":
+                    raise TypeError(f"Cannot store {prefix}.{field.name} without pickle")
+                arrays[f"{prefix}_{field.name}"] = array
+        np.savez_compressed(path, **arrays)
         return path
 
 @dataclass

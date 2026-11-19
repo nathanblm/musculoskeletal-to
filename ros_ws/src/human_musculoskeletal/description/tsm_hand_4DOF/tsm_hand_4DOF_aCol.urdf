@@ -1,0 +1,662 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<robot name="tsm_hand_4DOF"> 
+    <link name="ground" /> 
+ 
+    <link name="thorax"> 
+ 
+        <inertial> 
+             <mass value="20.866630055554726"/> 
+            <origin xyz=" 0.00000000 -0.06271884 -0.15165075" rpy="0 0 0" /> 
+            <inertia ixx="1.01423127615892" iyy="0.431566181190442" izz="1.01423127615892" ixy="0.0" ixz="0.0" iyz="0.0"/> 
+        </inertial> 
+ 
+        <visual name="thorax"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/thorax.stl" scale=" 1.06122959  1.02052029  1.06527989"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="thorax"> 
+            <origin xyz=" 0.00000000 -0.01214400 -0.11552200" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.2945  0.2046  0.3161" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="groundspine"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/groundspine.stl" scale=" 1.06122959  1.02052029  1.06527989"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="groundspine"> 
+            <origin xyz=" 0.00000000 -0.01214400 -0.11552200" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0800  0.1370  0.5356" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="clavicle"> 
+ 
+        <inertial> 
+             <mass value="0.23027421524576702"/> 
+            <origin xyz=" 0.06136172 -0.01438354  0.00595747" rpy="0 0 0" /> 
+            <inertia ixx="0.00023667930695988186" iyy="0.00023667930695988186" izz="4.33379085991607e-05" ixy="-1.8517650778800334e-05" ixz="-6.823638859814462e-05" iyz="5.239874879497059e-05"/> 
+        </inertial> 
+ 
+        <visual name="clavicle"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/clavicle.stl" scale=" 1.29574039  0.93498035  1.13276045"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="clavicle"> 
+            <origin xyz=" 0.06088450 -0.01518400  0.00624850" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.1406  0.0651  0.0371" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="scapula"> 
+ 
+        <inertial> 
+             <mass value="0.3559105841832708"/> 
+            <origin xyz="-0.04175532 -0.04767211 -0.03376315" rpy="0 0 0" /> 
+            <inertia ixx="0.0007831160899009278" iyy="0.0007244674830886594" izz="0.0007831160899009278" ixy="0.0002831235295702736" ixz="0.0002577844031903061" iyz="0.00015190073029839582"/> 
+        </inertial> 
+ 
+        <visual name="scapula"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scapula.stl" scale=" 0.87168297  0.96379817  0.95517992"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scapula"> 
+            <origin xyz="-0.04790150 -0.04707500 -0.05478500" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <sphere radius="0.05846728338355928" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="humerus"> 
+ 
+        <inertial> 
+             <mass value="1.7650184258291826"/> 
+            <origin xyz="-0.01313621  0.02195012 -0.15608121" rpy="0 0 0" /> 
+            <inertia ixx="0.016857105144014065" iyy="0.0021229483602644233" izz="0.016857105144014065" ixy="-0.00037986267895329963" ixz="-0.00019348702642473184" iyz="0.00013438298678286733"/> 
+        </inertial> 
+ 
+        <visual name="humerus"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/humerus.stl" scale=" 1.21539942  1.11406668  1.03029990"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="humerus"> 
+            <origin xyz="-0.00871700  0.00141800 -0.13973350" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.032723198447349174" length="0.36352330496322044" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="ulna"> 
+ 
+        <inertial> 
+             <mass value="0.8663223850962932"/> 
+            <origin xyz=" 0.02429000  0.00971800 -0.09958404" rpy="0 0 0" /> 
+            <inertia ixx="0.004535237562779418" iyy="0.0009037091378051446" izz="0.004535237562779418" ixy="0.00025779018856263923" ixz="-5.968556014211772e-05" iyz="0.0008883145658264504"/> 
+        </inertial> 
+ 
+        <visual name="ulna"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/ulna.stl" scale=" 1.00000000  1.03787435  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="ulna"> 
+            <origin xyz=" 0.02102250 -0.00712900 -0.11771650" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.027880750596523285" length="0.2695619199674235" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="radius"> 
+ 
+        <inertial> 
+             <mass value="0.1830931956559252"/> 
+            <origin xyz=" 0.01560000  0.03363000 -0.18843647" rpy="0 0 0" /> 
+            <inertia ixx="0.0003443675848337208" iyy="0.0003443675848337208" izz="3.275049855327186e-05" ixy="2.4518132796711732e-05" ixz="-3.323266907453437e-06" iyz="5.2208817614232224e-05"/> 
+        </inertial> 
+ 
+        <visual name="radius"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/radius.stl" scale=" 1.00000000  1.03787435  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="radius"> 
+            <origin xyz=" 0.01353650  0.01837050 -0.12029750" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.02542099915444851" length="0.2553658752644056" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="hand"> 
+ 
+        <inertial> 
+             <mass value="0.41148941660685245"/> 
+            <origin xyz="-0.04228316 -0.01548154 -0.08983608" rpy="0 0 0" /> 
+            <inertia ixx="0.000507795699061297" iyy="0.0002135282577592696" izz="0.0005577408216384547" ixy="-5.5010219758958586e-05" ixz="-2.0244820481154976e-05" iyz="-1.9692493759880073e-05"/> 
+        </inertial> 
+ 
+        <visual name="scaled_arm_r_lunate"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_lunate.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_lunate"> 
+            <origin xyz=" 0.00078724 -0.00059295 -0.00064146" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <sphere radius="0.007878070386747519" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_scaphoid"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_scaphoid.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_scaphoid"> 
+            <origin xyz="-0.00063072  0.01519187 -0.00506926" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0212  0.0163  0.0178" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_pisiform"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_pisiform.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_pisiform"> 
+            <origin xyz="-0.01273966 -0.01735681 -0.00992599" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <sphere radius="0.005574979353696108" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_triquetrum"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_triquetrum.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_triquetrum"> 
+            <origin xyz="-0.00191023 -0.01549069 -0.00722281" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0130  0.0173  0.0165" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_capitate"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_capitate.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_capitate"> 
+            <origin xyz=" 0.00230530  0.00245266 -0.01465329" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.00850720889866352" length="0.021496698260307312" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_trapezium"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_trapezium.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_trapezium"> 
+            <origin xyz="-0.00653685  0.02097477 -0.02193024" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <sphere radius="0.008630029857158661" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_trapezoid"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_trapezoid.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_trapezoid"> 
+            <origin xyz=" 0.00018667  0.01387852 -0.01950900" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.008090182673186064" length="0.01114067155867815" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_hamate"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_hamate.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_hamate"> 
+            <origin xyz="-0.00141420 -0.01278020 -0.01624772" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <sphere radius="0.008852916769683361" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_1mc"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_1mc.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_1mc"> 
+            <origin xyz="-0.01553180  0.03640050 -0.04153060" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0261  0.0321  0.0404" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_2mc"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_2mc.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_2mc"> 
+            <origin xyz=" 0.00603958  0.01668773 -0.05506320" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.010053951758891344" length="0.06556122750043869" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_3mc"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_3mc.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_3mc"> 
+            <origin xyz=" 0.00593186 -0.00048427 -0.05409366" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.00937623344361782" length="0.06446973979473114" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_4mc"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_4mc.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_4mc"> 
+            <origin xyz=" 0.00169754 -0.01723352 -0.05439955" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0124  0.0240  0.0598" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_5mc"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_5mc.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_5mc"> 
+            <origin xyz="-0.00690349 -0.02822354 -0.04839847" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0165  0.0280  0.0542" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_thumbprox"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_thumbprox.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_thumbprox"> 
+            <origin xyz="-0.02884466  0.05313965 -0.07277369" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.009925680700689554" length="0.02964247763156891" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_thumbdist"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_thumbdist.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_thumbdist"> 
+            <origin xyz="-0.03614451  0.06336946 -0.09288237" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.006072363816201687" length="0.016647912561893463" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_2proxph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_2proxph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_2proxph"> 
+            <origin xyz=" 0.01246194  0.01925756 -0.10767581" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0131  0.0173  0.0409" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_2midph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_2midph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_2midph"> 
+            <origin xyz=" 0.01532927  0.02237164 -0.13933463" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0077  0.0132  0.0237" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_2distph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_2distph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_2distph"> 
+            <origin xyz=" 0.01606060  0.02340377 -0.15912832" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0050  0.0098  0.0157" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_3proxph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_3proxph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_3proxph"> 
+            <origin xyz=" 0.01096639 -0.00494531 -0.10750954" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0113  0.0191  0.0429" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_3midph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_3midph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_3midph"> 
+            <origin xyz=" 0.01350992 -0.00829633 -0.14243119" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0077  0.0133  0.0284" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_3distph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_3distph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_3distph"> 
+            <origin xyz=" 0.01309583 -0.01013512 -0.16474593" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0054  0.0109  0.0169" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_4proxph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_4proxph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_4proxph"> 
+            <origin xyz=" 0.00032786 -0.02783504 -0.10265753" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0112  0.0210  0.0384" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_4midph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_4midph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_4midph"> 
+            <origin xyz="-0.00040704 -0.03661851 -0.13365981" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0082  0.0146  0.0242" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_4distph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_4distph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_4distph"> 
+            <origin xyz="-0.00099032 -0.04128725 -0.15360699" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0066  0.0111  0.0169" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_5proxph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_5proxph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_5proxph"> 
+            <origin xyz="-0.01187660 -0.04154717 -0.09201893" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0132  0.0202  0.0348" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_5midph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_5midph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_5midph"> 
+            <origin xyz="-0.01668019 -0.05090612 -0.11825700" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <box size=" 0.0094  0.0141  0.0203" /> 
+            </geometry> 
+        </collision> 
+ 
+        <visual name="scaled_arm_r_5distph"> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 1.57079633 -0.00000000  1.57079633" /> 
+            <geometry> 
+                <mesh filename="package://human_musculoskeletal/description/tsm_hand_4DOF/stl/scaled_arm_r_5distph.stl" scale=" 1.00000000  1.00000000  1.00000000"/> 
+            </geometry> 
+        </visual> 
+ 
+        <collision name="scaled_arm_r_5distph"> 
+            <origin xyz="-0.01907451 -0.05661616 -0.13509253" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+            <geometry> 
+                <cylinder radius="0.004287709482014179" length="0.014735981822013855" /> 
+            </geometry> 
+        </collision> 
+ 
+    </link> 
+ 
+    <link name="humerus_f1"> 
+ 
+        <inertial>
+            <mass value="0.0001"/> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy="0 0 0" /> 
+            <inertia ixx="0.0003" iyy="0.0003" izz="0.0003" ixy="0.0" ixz="0.0" iyz="0.0"/> 
+        </inertial> 
+ 
+    </link> 
+ 
+    <joint name="plane_elv" type="revolute"> 
+ 
+        <origin xyz=" 0.00859358 -0.00832452 -0.03277045" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+        <parent link="scapula"/> 
+        <child link="humerus_f1"/> 
+        <axis xyz=" 0.00000000  0.00000000  1.00000000"/> 
+        <limit effort="69.78145831146904" velocity="1.0" lower="-1.5" upper="3.1415926500000002" /> 
+ 
+    </joint> 
+ 
+    <link name="humerus_f2"> 
+ 
+        <inertial>
+            <mass value="0.0001"/> 
+            <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy="0 0 0" /> 
+            <inertia ixx="0.0003" iyy="0.0003" izz="0.0003" ixy="0.0" ixz="0.0" iyz="0.0"/> 
+        </inertial> 
+ 
+    </link> 
+ 
+    <joint name="shoulder_elv" type="revolute"> 
+ 
+        <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 0.00000000  0.00000000  0.00000000" /> 
+        <parent link="humerus_f1"/> 
+        <child link="humerus_f2"/> 
+        <axis xyz="-0.00000000 -1.00000000  0.00000000"/> 
+        <limit effort="23.993596350839635" velocity="1.0" lower="-0.78000000000000003" upper="2.5299999999999998" /> 
+ 
+    </joint> 
+ 
+    <joint name="axial_rot" type="revolute"> 
+ 
+        <origin xyz=" 0.00000000  0.00000000  0.00000000" rpy=" 0.00000000  0.00000000  0.00000000" /> 
+        <parent link="humerus_f2"/> 
+        <child link="humerus"/> 
+        <axis xyz="-0.05840000 -0.08460000  0.99470000"/> 
+        <limit effort="23.993596350839635" velocity="1.0" lower="-1.5707950000000199" upper="1.5707950000000199" /> 
+ 
+    </joint> 
+ 
+    <joint name="elbow_flexion" type="revolute"> 
+ 
+        <origin xyz="-0.01267257  0.00741395 -0.32352634" rpy=" 0.00000000 -0.00000000  0.00000000" /> 
+        <parent link="humerus"/> 
+        <child link="ulna"/> 
+        <axis xyz=" 0.99810825  0.04940001  0.03660001"/> 
+        <limit effort="23.993596350839635" velocity="1.0" lower="0" upper="2.2689280300000001" /> 
+ 
+    </joint> 
+ 
+    <joint name="ground_thorax" type="fixed"> 
+ 
+        <origin xyz="-0.000783518461 -0.004231306991 0.804030359770" rpy="-0.186575232803 0.069577282434 -0.063322974858" /> 
+        <parent link="ground"/> 
+        <child link="thorax"/> 
+ 
+    </joint> 
+ 
+    <joint name="sternoclavicular" type="fixed"> 
+ 
+        <origin xyz="0.027126698859 0.006712286466 0.007072268691" rpy="0.050456979708 0.066195089264 -0.293662241711" /> 
+        <parent link="thorax"/> 
+        <child link="clavicle"/> 
+ 
+    </joint> 
+ 
+    <joint name="scapulothoracic" type="fixed"> 
+ 
+        <origin xyz="0.142418183586 -0.064105850897 0.016291751615" rpy="0.194269611359 0.053829887546 0.085879879891" /> 
+        <parent link="thorax"/> 
+        <child link="scapula"/> 
+ 
+    </joint> 
+ 
+    <joint name="radioulnar" type="fixed"> 
+ 
+        <origin xyz="0.019999000000 0.000400000000 -0.011938668640" rpy="-0.070498955162 0.011005813258 0.594471033858" /> 
+        <parent link="ulna"/> 
+        <child link="radius"/> 
+ 
+    </joint> 
+ 
+    <joint name="rc" type="fixed"> 
+ 
+        <origin xyz="0.025000000000 0.018000000000 -0.251165592524" rpy="0.000000000000 0.000000000000 0.000000000000" /> 
+        <parent link="radius"/> 
+        <child link="hand"/> 
+ 
+    </joint> 
+ 
+    <gazebo reference="ground"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="thorax"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="clavicle"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="scapula"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="humerus"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="ulna"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="radius"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="hand"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="humerus_f1"><turnGravityOff>true</turnGravityOff></gazebo>
+    <gazebo reference="humerus_f2"><turnGravityOff>true</turnGravityOff></gazebo>
+</robot> 
