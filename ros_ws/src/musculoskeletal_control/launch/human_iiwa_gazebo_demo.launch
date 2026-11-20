@@ -1,0 +1,37 @@
+<launch>
+  <arg name="gui" default="true"/>
+  <arg name="video_device" default="/dev/video0"/>
+  <arg name="image_topic" default="/camera/webcam/image_raw"/>
+  <arg name="robot_spawn_x" default="0.4"/>
+  <arg name="robot_spawn_y" default="0.6"/>
+  <arg name="robot_base_in_human_root" default="[0.4, 0.6, 0, 0, 0, 0, 1]"/>
+  <arg name="robot_ee_in_endpoint" default="[-0.15, 0, 0, 0, 0, 0, 1]"/>
+  <arg name="model_path" default="$(find human_musculoskeletal)/../../../musculoskeletal_models/tsm_hand_4DOF/tsm_hand_4DOF.osim"/>
+
+  <!-- This starts Gazebo, the webcam pose estimator, and the human model. -->
+  <include file="$(find human_musculoskeletal)/launch/human_gazebo.launch">
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="video_device" value="$(arg video_device)"/>
+    <arg name="image_topic" value="$(arg image_topic)"/>
+    <arg name="model_path" value="$(arg model_path)"/>
+  </include>
+  <param name="/use_sim_time" value="true"/>
+
+  <!-- Upload iiwa after the human so the controller reads iiwa's description. -->
+  <include file="$(find iiwa_description)/launch/iiwa_setup.launch">
+    <arg name="controller" value="CartesianImpedanceController"/>
+  </include>
+  <node pkg="gazebo_ros" type="spawn_model" name="iiwa_spawner" output="screen"
+        args="-urdf -model iiwa -param robot_description -x $(arg robot_spawn_x) -y $(arg robot_spawn_y)"/>
+  <param name="/iiwa/CartesianImpedanceController/dynamic_reconfigure_server_node/nullspace_control" value="true"/>
+  <include file="$(find iiwa_impedance_control)/launch/iiwa_impedance_control.launch">
+    <arg name="controller" value="CartesianImpedanceController"/>
+  </include>
+
+  <include file="$(find musculoskeletal_control)/launch/human_iiwa_pose_coupling.launch">
+    <arg name="model_path" value="$(arg model_path)"/>
+    <arg name="robot_base_in_human_root" value="$(arg robot_base_in_human_root)"/>
+    <arg name="robot_ee_in_endpoint" value="$(arg robot_ee_in_endpoint)"/>
+    <arg name="command_robot" value="true"/>
+  </include>
+</launch>

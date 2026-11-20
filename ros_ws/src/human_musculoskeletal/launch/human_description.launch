@@ -4,8 +4,11 @@
 
   <param name="human_description" textfile="$(arg urdf)"/>
   <param name="robot_description" textfile="$(arg urdf)"/>
-  <node pkg="robot_state_publisher" type="robot_state_publisher"
-        name="human_robot_state_publisher" output="screen">
-    <remap from="joint_states" to="$(arg joint_states_topic)"/>
-  </node>
+  <group ns="human">
+    <param name="robot_description" textfile="$(arg urdf)"/>
+    <node pkg="robot_state_publisher" type="robot_state_publisher"
+          name="human_robot_state_publisher" output="screen">
+      <remap from="joint_states" to="$(arg joint_states_topic)"/>
+    </node>
+  </group>
 </launch>

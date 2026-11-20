@@ -1,0 +1,15 @@
+<launch>
+  <!-- Replace these example transforms with the placements in your scene. -->
+  <arg name="robot_base_in_human_root" default="[0, 0, 0, 0, 0, 0, 1]"/>
+  <arg name="robot_ee_in_endpoint" default="[0, 0, 0, 0, 0, 0, 1]"/>
+  <arg name="command_robot" default="false"/>
+  <arg name="model_path" default="$(find human_musculoskeletal)/../../../musculoskeletal_models/tsm_hand_4DOF/tsm_hand_4DOF.osim"/>
+
+  <node pkg="musculoskeletal_control" type="human_iiwa_pose_coupling.py"
+        name="human_iiwa_pose_coupling" output="screen">
+    <rosparam param="robot_base_in_human_root" subst_value="true">$(arg robot_base_in_human_root)</rosparam>
+    <rosparam param="robot_ee_in_endpoint" subst_value="true">$(arg robot_ee_in_endpoint)</rosparam>
+    <param name="command_robot" value="$(arg command_robot)"/>
+    <param name="model_path" value="$(arg model_path)"/>
+  </node>
+</launch>

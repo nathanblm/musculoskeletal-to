@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <robot name="tsm_hand_4DOF"> 
+    <link name="world" />
     <link name="ground" /> 
+    <joint name="world_ground" type="fixed">
+        <parent link="world"/>
+        <child link="ground"/>
+    </joint>
  
     <link name="thorax"> 
  
@@ -648,6 +653,14 @@
         <child link="hand"/> 
  
     </joint> 
+
+    <!-- OpenSim endpoint marker. Its +x axis is the dataset force direction. -->
+    <link name="endpoint" />
+    <joint name="hand_endpoint" type="fixed">
+        <parent link="hand"/>
+        <child link="endpoint"/>
+        <origin xyz="-0.00007228506457371492 -0.004481826575242292 -0.040391465749820096" rpy="0 0 0"/>
+    </joint>
  
     <gazebo reference="ground"><turnGravityOff>true</turnGravityOff></gazebo>
     <gazebo reference="thorax"><turnGravityOff>true</turnGravityOff></gazebo>
